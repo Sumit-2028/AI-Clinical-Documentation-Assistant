@@ -3,7 +3,12 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=18.18.0",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
+    "setup": "npm ci",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run --config vitest.config.mjs",

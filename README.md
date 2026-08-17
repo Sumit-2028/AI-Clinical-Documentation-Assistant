@@ -1006,12 +1006,32 @@ Mutations invalidate or update relevant queries after Step 1 verification, confl
 
 ### Prerequisites
 
-The repository does not declare a Node.js `engines` field. Use a current Node.js/npm version compatible with Vite 5 and TypeScript 5.6.
+This is a Node.js project, so it does not use a Python `venv`. The project-local `node_modules` directory is the isolated dependency environment for the frontend and is created by the setup command below.
+
+Use Node.js `18.18.0` or newer and npm `9.0.0` or newer. The required dependency versions are declared in [`package.json`](package.json), and the exact resolved versions are locked in [`package-lock.json`](package-lock.json).
 
 ### Install
 
 ```bash
-npm install
+npm run setup
+```
+
+`npm run setup` runs `npm ci`, which installs the exact versions from `package-lock.json`. It is the recommended command after cloning or pulling the repository from GitHub. The setup is reproducible because `node_modules/` is ignored and is recreated locally on each machine.
+
+You can also run the platform-specific setup scripts directly:
+
+```powershell
+.\scripts\setup.ps1
+```
+
+```bash
+./scripts/setup.sh
+```
+
+After setup, start the development server:
+
+```bash
+npm run dev
 ```
 
 ### Start the development server
