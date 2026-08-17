@@ -1,0 +1,239 @@
+openapi: 3.0.3
+info:
+  title: Clinical Memory System - Step 1 Input Processing
+  version: 1.0.0
+paths:
+  /api/v1/step1/documents/typed:
+    post:
+      summary: Process a typed medical document
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TypedDocumentRequest'
+      responses:
+        '200':
+          description: Step 1 output
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Step1Output'
+  /api/v1/step1/documents/handwritten:
+    post:
+      summary: Process a handwritten medical document
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TypedDocumentRequest'
+      responses:
+        '200':
+          description: Step 1 output
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Step1Output'
+  /api/v1/step1/documents/multilingual:
+    post:
+      summary: Process multilingual medical text
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MultilingualDocumentRequest'
+      responses:
+        '200':
+          description: Step 1 output
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Step1Output'
+  /api/v1/step1/documents/{document_id}:
+    get:
+      summary: Get Step 1 processing state
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: Current Step 1 output
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Step1Output'
+        '404':
+          description: Document not found
+  /api/v1/step1/documents/{document_id}/human-verify:
+    post:
+      summary: Verify or reject an extracted field
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HumanVerificationRequest'
+      responses:
+        '200':
+          description: Updated Step 1 output
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Step1Output'
+        '404':
+          description: Document or field not found
+components:
+  parameters:
+    DocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    TypedDocumentRequest:
+      type: object
+      required: [patient_id, encounter_id, file]
+      properties:
+        patient_id:
+          type: string
+          format: uuid
+        encounter_id:
+          type: string
+          format: uuid
+        file:
+          type: string
+          format: binary
+    MultilingualDocumentRequest:
+      type: object
+      required: [patient_id, encounter_id, text_input, source_language]
+      properties:
+        patient_id:
+          type: string
+          format: uuid
+        encounter_id:
+          type: string
+          format: uuid
+        text_input:
+          type: string
+        source_language:
+          type: string
+    HumanVerificationRequest:
+      type: object
+      required: [field_id, verified_text, reviewer_id, approved]
+      properties:
+        field_id:
+          type: string
+          format: uuid
+        verified_text:
+          type: string
+        reviewer_id:
+          type: string
+        approved:
+          type: boolean
+    DualRunResult:
+      type: object
+      required: [triggered]
+      properties:
+        triggered:
+          type: boolean
+        second_pass_text:
+          type: string
+          nullable: true
+        agreement:
+          type: boolean
+          nullable: true
+    ExtractedField:
+      type: object
+      required:
+        - field_id
+        - raw_text
+        - standardized_text
+        - extraction_confidence
+        - is_high_risk_field
+        - confidence_tier
+        - dual_run_result
+        - requires_doctor_review_before_memory_write
+      properties:
+        field_id:
+          type: string
+          format: uuid
+        raw_text:
+          type: string
+        standardized_text:
+          type: string
+        extraction_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        is_high_risk_field:
+          type: boolean
+        confidence_tier:
+          type: string
+          enum: [auto_pass, dual_run, human_verification_required, verified]
+        dual_run_result:
+          $ref: '#/components/schemas/DualRunResult'
+        requires_doctor_review_before_memory_write:
+          type: boolean
+    Step1Output:
+      type: object
+      required:
+        - document_id
+        - patient_id
+        - encounter_id
+        - input_modality
+        - source_language
+        - extracted_fields
+        - translation_confidence
+        - processing_status
+        - audit_log_id
+        - created_at
+        - verification_state
+      properties:
+        document_id:
+          type: string
+          format: uuid
+        patient_id:
+          type: string
+          format: uuid
+        encounter_id:
+          type: string
+          format: uuid
+        input_modality:
+          type: string
+          enum: [typed, handwritten, multilingual]
+        source_language:
+          type: string
+        extracted_fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtractedField'
+        translation_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        original_language_text:
+          type: string
+          nullable: true
+        ocr_engine_used:
+          type: string
+          nullable: true
+        vlm_model_used:
+          type: string
+          nullable: true
+        processing_status:
+          type: string
+          enum: [complete, pending_human_verification, failed]
+        audit_log_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        verification_state:
+          type: string
+          enum: [not_required, pending, verified, rejected]

@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+pythonpath = [".", "services/input-processing"]
+testpaths = [
+    "services/gateway/tests",
+    "services/clinical-nlp/tests",
+    "services/input-processing/tests",
+    "services/memory-engine/tests",
+    "services/doc-generation/tests",
+    "tests",
+]
+addopts = "-q"

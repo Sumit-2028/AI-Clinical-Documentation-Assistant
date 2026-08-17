@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+import os
 
 from ..database import SessionLocal
 
@@ -7,6 +8,11 @@ from .security import hash_password
 
 
 def create_test_user():
+    password = os.getenv("SEED_TEST_USER_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "SEED_TEST_USER_PASSWORD must be supplied through the environment."
+        )
     db: Session = SessionLocal()
 
     try:
@@ -25,9 +31,7 @@ def create_test_user():
         user = User(
             email="doctor@example.com",
             full_name="Demo Physician",
-            password_hash=hash_password(
-                "password123"
-            ),
+            password_hash=hash_password(password),
             role="physician",
             is_active=True,
         )

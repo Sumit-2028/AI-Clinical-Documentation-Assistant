@@ -1,0 +1,172 @@
+openapi: 3.0.3
+info:
+  title: Clinical Memory System - Step 2 Clinical NLP
+  version: 1.0.0
+paths:
+  /api/v1/step2/process:
+    post:
+      summary: Convert validated Step1Output into ClinicalEvent objects
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Step2ProcessRequest'
+      responses:
+        '200':
+          description: Clinical events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClinicalEventBatch'
+        '422':
+          description: Invalid Step1Output or invalid clinical event
+  /api/v1/step2/process/{document_id}:
+    get:
+      summary: Return the previously processed ClinicalEvent objects
+      parameters:
+        - $ref: '#/components/parameters/DocumentId'
+      responses:
+        '200':
+          description: Previously processed clinical events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClinicalEventBatch'
+        '404':
+          description: Document has not been processed
+components:
+  parameters:
+    DocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Step2ProcessRequest:
+      type: object
+      required: [document_id, patient_id, encounter_id, step1_output]
+      properties:
+        document_id:
+          type: string
+          format: uuid
+        patient_id:
+          type: string
+          format: uuid
+        encounter_id:
+          type: string
+          format: uuid
+        step1_output:
+          $ref: '#/components/schemas/Step1Output'
+    SourceTextSpan:
+      type: object
+      required: [start, end]
+      properties:
+        start:
+          type: integer
+          minimum: 0
+        end:
+          type: integer
+          minimum: 0
+    ClinicalEvent:
+      type: object
+      required:
+        - event_local_id
+        - original_text
+        - processed_text
+        - normalized_concept
+        - entity_type
+        - clinical_domain
+        - relationships
+        - assertion
+        - clinical_status
+        - temporal_context
+        - bioclinicalbert_confidence
+        - gemini_contextualization_confidence
+        - source_document_id
+        - source_text_span
+        - input_modality
+        - source_language
+        - translation_confidence
+        - validation_status
+      properties:
+        event_local_id:
+          type: string
+          format: uuid
+        original_text:
+          type: string
+        processed_text:
+          type: string
+        normalized_concept:
+          type: string
+        snomed_ct_id:
+          type: string
+          nullable: true
+        entity_type:
+          type: string
+        clinical_domain:
+          type: string
+        relationships:
+          type: array
+          items:
+            type: object
+        assertion:
+          type: string
+        clinical_status:
+          type: string
+        temporal_context:
+          type: string
+        temporal_date:
+          type: string
+          format: date
+          nullable: true
+        bioclinicalbert_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        gemini_contextualization_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        source_document_id:
+          type: string
+          format: uuid
+        source_text_span:
+          $ref: '#/components/schemas/SourceTextSpan'
+        input_modality:
+          type: string
+          enum: [typed, handwritten, multilingual]
+        source_language:
+          type: string
+        translation_confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        validation_status:
+          type: string
+          enum: [valid, invalid]
+    ClinicalEventBatch:
+      type: object
+      required: [clinical_events, patient_id, encounter_id, source_document_id, processed_at]
+      properties:
+        clinical_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClinicalEvent'
+        patient_id:
+          type: string
+          format: uuid
+        encounter_id:
+          type: string
+          format: uuid
+        source_document_id:
+          type: string
+          format: uuid
+        processed_at:
+          type: string
+          format: date-time
+    Step1Output:
+      type: object
+      description: The Step 1 contract defined in contracts/openapi/step1-input.yaml.

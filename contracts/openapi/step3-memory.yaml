@@ -1,0 +1,339 @@
+openapi: 3.0.3
+info:
+  title: Clinical Memory System - Step 3 Patient Memory
+  version: 1.0.0
+paths:
+  /api/v1/step3/memory/events:
+    post:
+      summary: Single Memory Write Gate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryWriteRequest'
+      responses:
+        '200':
+          description: Write result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryWriteResponse'
+  /api/v1/step3/memory/{patient_id}/events:
+    get:
+      summary: Longitudinal patient memory history
+      parameters:
+        - $ref: '#/components/parameters/PatientId'
+      responses:
+        '200':
+          description: Append-only memory history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryEventHistory'
+  /api/v1/step3/memory/{patient_id}/current-state:
+    get:
+      summary: Current materialized concept-thread state
+      parameters:
+        - $ref: '#/components/parameters/PatientId'
+      responses:
+        '200':
+          description: Current patient state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentPatientState'
+  /api/v1/step3/memory/retrieve:
+    post:
+      summary: Retrieve verified and unverified patient context
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryRetrieveRequest'
+      responses:
+        '200':
+          description: Retrieved context
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetrievedContext'
+  /api/v1/step3/conflicts:
+    get:
+      summary: List visible conflicts
+      parameters:
+        - name: patient_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [unresolved, resolved]
+        - name: risk_level
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Conflict records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConflictRecord'
+  /api/v1/step3/conflicts/{conflict_id}/resolve:
+    post:
+      summary: Explicitly resolve or retain a conflict
+      parameters:
+        - $ref: '#/components/parameters/ConflictId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveConflictRequest'
+      responses:
+        '200':
+          description: Conflict resolution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveConflictResponse'
+  /api/v1/step3/tier3/{event_id}/approve:
+    post:
+      summary: Promote a tier-3 event to physician-reviewed tier 2
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TierReviewRequest'
+      responses:
+        '200':
+          description: Tier review result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TierReviewResponse'
+  /api/v1/step3/tier3/{event_id}/reject:
+    post:
+      summary: Reject a tier-3 event while retaining it as unverified
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TierReviewRequest'
+      responses:
+        '200':
+          description: Tier review result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TierReviewResponse'
+components:
+  parameters:
+    PatientId:
+      name: patient_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ConflictId:
+      name: conflict_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EventId:
+      name: event_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ClinicalEvent:
+      description: The validated Step 2 ClinicalEvent contract.
+      type: object
+    MemoryWriteRequest:
+      type: object
+      required: [patient_id, encounter_id, source, clinical_events]
+      properties:
+        patient_id:
+          type: string
+          format: uuid
+        encounter_id:
+          type: string
+          format: uuid
+        source:
+          type: string
+          enum: [simulated_abha, patient_upload, physician_approved_consultation]
+        clinical_events:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ClinicalEvent'
+    WrittenMemoryEvent:
+      type: object
+      required: [event_id, concept_thread_id, trust_tier, thread_match_confidence, thread_match_method, is_new_thread]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        concept_thread_id:
+          type: string
+          format: uuid
+        trust_tier:
+          type: integer
+          enum: [1, 2, 3]
+        thread_match_confidence:
+          type: string
+          enum: [high, medium, low]
+        thread_match_method:
+          type: string
+        is_new_thread:
+          type: boolean
+    RejectedMemoryEvent:
+      type: object
+      required: [event_id, reason]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+    MemoryWriteResponse:
+      type: object
+      required: [written_events, conflicts_detected, rejected_events]
+      properties:
+        written_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/WrittenMemoryEvent'
+        conflicts_detected:
+          type: array
+          items:
+            type: string
+            format: uuid
+        rejected_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/RejectedMemoryEvent'
+    MemoryEvent:
+      type: object
+      description: Append-only memory event with provenance and effective trust tier.
+    MemoryEventHistory:
+      type: object
+      required: [patient_id, events]
+      properties:
+        patient_id:
+          type: string
+          format: uuid
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemoryEvent'
+    ConceptThreadState:
+      type: object
+    CurrentPatientState:
+      type: object
+      required: [patient_id, concept_threads]
+      properties:
+        patient_id:
+          type: string
+          format: uuid
+        concept_threads:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConceptThreadState'
+    MemoryRetrieveRequest:
+      type: object
+      required: [patient_id, encounter_id, query_concepts]
+      properties:
+        patient_id:
+          type: string
+          format: uuid
+        encounter_id:
+          type: string
+          format: uuid
+        query_concepts:
+          type: array
+          items:
+            type: string
+    MemoryContextItem:
+      type: object
+    RetrievedContext:
+      type: object
+      required: [verified_context, unverified_information, conflicts]
+      properties:
+        verified_context:
+          type: object
+        unverified_information:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemoryContextItem'
+        conflicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConflictRecord'
+    ConflictRecord:
+      type: object
+    ResolveConflictRequest:
+      type: object
+      required: [resolution_action, physician_id]
+      properties:
+        resolution_action:
+          type: string
+          enum: [confirm_event_a, confirm_event_b, keep_unresolved]
+        physician_id:
+          type: string
+    ResolveConflictResponse:
+      type: object
+      required: [conflict_id, status]
+      properties:
+        conflict_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [resolved, unresolved]
+        new_event_id:
+          type: string
+          format: uuid
+          nullable: true
+    TierReviewRequest:
+      type: object
+      required: [physician_id]
+      properties:
+        physician_id:
+          type: string
+    TierReviewResponse:
+      type: object
+      required: [event_id, new_trust_tier, trust_tier_change_event_id]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        new_trust_tier:
+          type: integer
+          enum: [2, 3]
+        trust_tier_change_event_id:
+          type: string
+          format: uuid
+        reviewed_status:
+          type: string

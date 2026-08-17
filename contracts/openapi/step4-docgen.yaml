@@ -1,0 +1,190 @@
+openapi: 3.0.3
+info:
+  title: Clinical Memory System - Step 4 Documentation Generation
+  version: 1.0.0
+paths:
+  /api/v1/step4/documents/generate:
+    post:
+      summary: Generate a physician-reviewable clinical document draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateDocumentRequest'
+      responses:
+        '200':
+          description: Draft GeneratedDocument
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeneratedDocument'
+        '422':
+          description: Invalid input or generation validation failure
+  /api/v1/step4/documents/{document_id}/finalize:
+    post:
+      summary: Apply physician action to a generated document
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinalizeDocumentRequest'
+      responses:
+        '200':
+          description: Review result and memory handoff payload where applicable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentReviewResponse'
+        '404':
+          description: Document not found
+        '409':
+          description: Document cannot be finalized safely
+components:
+  schemas:
+    ClinicalEvent:
+      description: Validated Step 2 ClinicalEvent contract.
+      type: object
+    RetrievedContext:
+      description: Step 3 RetrievedContext contract.
+      type: object
+    DocumentSections:
+      type: object
+      properties:
+        subjective: {type: string, nullable: true}
+        objective: {type: string, nullable: true}
+        assessment: {type: string, nullable: true}
+        plan: {type: string, nullable: true}
+        patient_identification: {type: string, nullable: true}
+        reason_for_encounter: {type: string, nullable: true}
+        medications: {type: string, nullable: true}
+        allergies: {type: string, nullable: true}
+        procedures: {type: string, nullable: true}
+        relevant_history: {type: string, nullable: true}
+        follow_up: {type: string, nullable: true}
+    GenerateDocumentRequest:
+      type: object
+      required: [patient_id, encounter_id, document_type, current_consultation_events, retrieved_context]
+      properties:
+        patient_id: {type: string, format: uuid}
+        encounter_id: {type: string, format: uuid}
+        document_type:
+          type: string
+          enum: [soap_note, discharge_summary]
+        current_consultation_events:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ClinicalEvent'}
+        retrieved_context: {$ref: '#/components/schemas/RetrievedContext'}
+        physician_instructions: {type: string, nullable: true}
+    DocumentReviewFlag:
+      type: object
+      required: [code, message, severity]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        severity: {type: string}
+        section: {type: string, nullable: true}
+        source_event_ids:
+          type: array
+          items: {type: string, format: uuid}
+    DocumentProvenanceEntry:
+      type: object
+      required: [section, generated_text, source_kind, confidence, is_inferred]
+      properties:
+        section: {type: string}
+        generated_text: {type: string}
+        source_event_ids:
+          type: array
+          items: {type: string, format: uuid}
+        source_document_ids:
+          type: array
+          items: {type: string, format: uuid}
+        source_kind: {type: string}
+        trust_tier: {type: integer, nullable: true, enum: [1, 2, 3]}
+        confidence: {type: number, minimum: 0, maximum: 1}
+        is_inferred: {type: boolean}
+    ValidationFailure:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        section: {type: string, nullable: true}
+        source_event_ids:
+          type: array
+          items: {type: string, format: uuid}
+    DocumentValidationResult:
+      type: object
+      required: [passed, failures, auto_regeneration_attempts]
+      properties:
+        passed: {type: boolean}
+        failures:
+          type: array
+          items: {$ref: '#/components/schemas/ValidationFailure'}
+        auto_regeneration_attempts: {type: integer, minimum: 0}
+    GeneratedDocument:
+      type: object
+      required: [document_id, patient_id, encounter_id, document_type, status, sections, flags_for_physician_review, provenance_map, validation_result, generated_at]
+      properties:
+        document_id: {type: string, format: uuid}
+        patient_id: {type: string, format: uuid}
+        encounter_id: {type: string, format: uuid}
+        document_type:
+          type: string
+          enum: [soap_note, discharge_summary]
+        status:
+          type: string
+          enum: [draft, finalized]
+        sections: {$ref: '#/components/schemas/DocumentSections'}
+        flags_for_physician_review:
+          type: array
+          items: {$ref: '#/components/schemas/DocumentReviewFlag'}
+        provenance_map:
+          type: array
+          items: {$ref: '#/components/schemas/DocumentProvenanceEntry'}
+        validation_result: {$ref: '#/components/schemas/DocumentValidationResult'}
+        generated_at: {type: string, format: date-time}
+        finalized_at: {type: string, format: date-time, nullable: true}
+        generator: {type: string}
+    FinalizeDocumentRequest:
+      type: object
+      required: [action, physician_id]
+      properties:
+        action:
+          type: string
+          enum: [accept, edit, reject_regenerate]
+        physician_id: {type: string}
+        edited_sections:
+          allOf:
+            - $ref: '#/components/schemas/DocumentSections'
+          nullable: true
+        regenerate_notes: {type: string, nullable: true}
+    MemoryWritePayload:
+      description: Payload sent to POST /api/v1/step3/memory/events after physician finalization.
+      type: object
+    DocumentReviewResponse:
+      type: object
+      required: [document_id, status]
+      properties:
+        document_id: {type: string, format: uuid}
+        status:
+          type: string
+          enum: [draft, finalized]
+        finalized_at: {type: string, format: date-time, nullable: true}
+        memory_write_payload:
+          allOf:
+            - $ref: '#/components/schemas/MemoryWritePayload'
+          nullable: true
+        document:
+          allOf:
+            - $ref: '#/components/schemas/GeneratedDocument'
+          nullable: true
