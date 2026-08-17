@@ -6,5 +6,6 @@ import { App } from './App'
 import './styles.css'
 import './memory.css'
 import './documentation.css'
+import './workflow.css'
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: false } } })
 createRoot(document.getElementById('root')!).render(<StrictMode><QueryClientProvider client={queryClient}><BrowserRouter><App /></BrowserRouter></QueryClientProvider></StrictMode>)

@@ -14,9 +14,11 @@ const lab = response.clinical_events.find((event) => event.entity_type === 'LabF
 const invalid = response.clinical_events.find((event) => event.validation_status !== 'valid')!
 const valid = response.clinical_events.find((event) => event.validation_status === 'valid')!
 const reviewRequiredCount = response.clinical_events.filter((event) => event.validation_status !== 'valid').length
+const eligibleReviewRequired = { ...valid, event_local_id: 'evt_review_eligible', normalized_concept: 'Reviewable eligible finding', gemini_contextualization_confidence: 0.79, ambiguous_abbreviation_resolved: { ...valid.ambiguous_abbreviation_resolved, was_ambiguous: false, resolved_value: null } }
+const eligibleReviewResponse = { ...response, clinical_events: [eligibleReviewRequired] }
 
 function renderCard(event: ClinicalEvent) { return render(<ClinicalEventCard event={event} onProvenance={() => undefined} />) }
-function renderApp() { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/clinical-nlp']}><App /></MemoryRouter></QueryClientProvider>) }
+function renderApp(seed?: Step2Response) { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); if (seed) { client.setQueryData(['step2-clinical-nlp'], seed); client.setQueryData(['step2-process'], seed) }; return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/clinical-nlp']}><App /></MemoryRouter></QueryClientProvider>) }
 
 describe('Clinical NLP experience', () => {
   it('renders medication event details, confidence, relationships, and attributes', () => {
@@ -46,9 +48,23 @@ describe('Clinical NLP experience', () => {
     expect(screen.getByText('Review required')).toBeInTheDocument()
   })
 
+  it('shows all decisions for a review-required finding that remains safety-eligible', () => {
+    render(<ClinicalEventCard event={eligibleReviewRequired} onProvenance={() => undefined} onApprove={() => undefined} onReject={() => undefined} onEditInterpretation={() => undefined} />)
+    expect(screen.getByText('Review required')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit interpretation' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reject finding' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add to patient record' })).toBeEnabled()
+    expect(screen.queryByText('This finding cannot be added to the patient record')).not.toBeInTheDocument()
+  })
+
   it('renders the data-driven NLP page and provenance drawer', async () => {
     renderApp()
     expect(await screen.findByRole('heading', { name: 'Clinical intelligence' })).toBeInTheDocument()
+    expect(await screen.findByText('Complete abbreviation review before clinical findings can be generated.')).toBeInTheDocument()
+    expect(screen.queryByText(valid.event_local_id)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'View all clinical findings' })).not.toBeInTheDocument()
+    for (const button of await screen.findAllByRole('button', { name: 'Use suggestion' })) fireEvent.click(button)
+    expect(await screen.findByRole('button', { name: 'View all clinical findings' })).toBeInTheDocument()
     expect(screen.getByText('Ready to add to patient record')).toBeInTheDocument()
     expect(await screen.findByText(`${reviewRequiredCount} ${reviewRequiredCount === 1 ? 'finding needs' : 'findings need'} your review`)).toBeInTheDocument()
     expect(screen.getByText('Show source text')).toBeInTheDocument()
@@ -65,7 +81,12 @@ describe('Clinical NLP experience', () => {
     expect(screen.getByText('Hide additional findings')).toBeInTheDocument()
     expect(await screen.findByText('Rejected')).toBeInTheDocument()
     expect(within(findingsSection).getByText(valid.event_local_id)).toBeInTheDocument()
-    fireEvent.click(within(findingsSection).getAllByRole('button', { name: 'Add to patient record' })[0])
+    const invalidCard = screen.getByText(invalid.normalized_concept).closest('article')!
+    expect(within(invalidCard).queryByRole('button', { name: 'Add to patient record' })).not.toBeInTheDocument()
+    expect(within(invalidCard).getByText('This finding cannot be added to the patient record')).toBeInTheDocument()
+    const addButton = within(findingsSection).getAllByRole('button', { name: 'Add to patient record' })[0]
+    expect(addButton).toBeEnabled()
+    fireEvent.click(addButton)
     const addDialog = screen.getByRole('dialog', { name: 'Add this finding to the patient record?' })
     fireEvent.click(within(addDialog).getByRole('button', { name: 'Add to patient record' }))
     expect(await screen.findByText('Added to patient record')).toBeInTheDocument()
@@ -80,9 +101,7 @@ describe('Clinical NLP experience', () => {
   it('allows a physician to use or edit an ambiguous interpretation without changing the source', async () => {
     renderApp()
     expect(await screen.findByRole('heading', { name: 'Clinical intelligence' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'View all clinical findings' }))
-    expect(screen.getAllByText('Abbreviation needs review').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(`Suggested interpretation: ${medication.ambiguous_abbreviation_resolved.resolved_value}`).length).toBeGreaterThan(0)
+    expect(await screen.findByText('Complete abbreviation review before clinical findings can be generated.')).toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit interpretation' })[0])
     const dialog = screen.getByRole('dialog', { name: 'Correct abbreviation' })
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Interpretation' }), { target: { value: 'Once daily' } })
@@ -90,5 +109,19 @@ describe('Clinical NLP experience', () => {
     expect(await screen.findByText('Physician corrected')).toBeInTheDocument()
     expect(screen.getAllByText('Once daily').length).toBeGreaterThan(0)
     expect(screen.getAllByText(medication.original_text).length).toBeGreaterThan(0)
+  })
+
+  it('confirms an eligible review-required add and updates the review count without removing the event', async () => {
+    renderApp(eligibleReviewResponse)
+    expect(await screen.findByText('1 finding needs your review')).toBeInTheDocument()
+    expect(screen.getAllByText('Reviewable eligible finding').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Add to patient record' }))
+    const dialog = screen.getByRole('dialog', { name: 'Add this finding to the patient record?' })
+    expect(screen.getByText("This finding has passed the current safety checks and can be added to the patient's clinical record.")).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add to patient record' }))
+    expect(await screen.findByText('Added to patient record')).toBeInTheDocument()
+    expect(await screen.findByText('No findings require your review')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View all clinical findings' }))
+    expect(screen.getAllByText('Reviewable eligible finding').length).toBeGreaterThan(0)
   })
 })

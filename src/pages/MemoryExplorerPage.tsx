@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import type { MemoryFact } from '../contracts/memory'
 import type { Conflict, RetrievedContext } from '../contracts/retrievedContext'
 import { useApproveTier3, useConflictList, useMemoryEvents, useRejectTier3, useResolveConflict, useRetrievedContext } from '../hooks/useMemory'
+import { useWorkflow, type WorkflowNavigationState } from '../context/WorkflowContext'
 import { TrustTierBadge } from '../components/Badges'
 import { MemoryFactCard } from '../components/MemoryFactCard'
 import { MemoryProvenanceDrawer } from '../components/MemoryProvenanceDrawer'
@@ -26,26 +27,33 @@ export function deriveQueryConcepts(question: string): string[] {
 }
 
 export function MemoryExplorerPage({ initialView = 'memory' }: { initialView?: MemoryView }) {
+  const location = useLocation()
   const [searchParams] = useSearchParams()
+  const { workflow, setWorkflow } = useWorkflow()
+  const routeWorkflow = (location.state as WorkflowNavigationState | null)?.workflow
   const [view, setView] = useState<MemoryView>(initialView)
   const [queryInput, setQueryInput] = useState('')
   const [submittedQuestion, setSubmittedQuestion] = useState('')
   const [submittedConcepts, setSubmittedConcepts] = useState(['chest pain'])
   const [hasSearched, setHasSearched] = useState(false)
   const [conversation, setConversation] = useState<string[]>([])
-  const [patientId, setPatientId] = useState(() => searchParams.get('patient_id') ?? 'pat_00123')
-  const [encounterId, setEncounterId] = useState(() => searchParams.get('encounter_id') ?? 'enc_2026_0817_01')
+  const [patientId, setPatientId] = useState(() => searchParams.get('patient_id') ?? routeWorkflow?.patient_id ?? workflow.patient_id)
+  const [encounterId, setEncounterId] = useState(() => searchParams.get('encounter_id') ?? routeWorkflow?.encounter_id ?? workflow.encounter_id)
   const [selectedFact, setSelectedFact] = useState<MemoryFact | null>(null)
   const [approvedIds, setApprovedIds] = useState<string[]>([])
   const [rejectedIds, setRejectedIds] = useState<string[]>([])
   const [resolvedIds, setResolvedIds] = useState<string[]>([])
   const { data: context, isLoading } = useRetrievedContext(submittedConcepts, patientId, encounterId)
-  const { data: timeline = [] } = useMemoryEvents()
-  const { data: conflicts = [] } = useConflictList()
+  const { data: timeline = [] } = useMemoryEvents(patientId)
+  const { data: conflicts = [] } = useConflictList(patientId)
   const approve = useApproveTier3()
   const reject = useRejectTier3()
   const resolve = useResolveConflict()
   const displayedContext = applyTierActions(context, approvedIds, rejectedIds)
+
+  useEffect(() => {
+    if (routeWorkflow && (routeWorkflow.patient_id !== workflow.patient_id || routeWorkflow.encounter_id !== workflow.encounter_id || routeWorkflow.document_id !== workflow.document_id)) setWorkflow(routeWorkflow)
+  }, [location.state])
 
   const submitQuery = (question: string) => {
     const trimmed = question.trim()
@@ -63,7 +71,7 @@ export function MemoryExplorerPage({ initialView = 'memory' }: { initialView?: M
   return <div className="page-stack">
     <PatientMemoryHeader patientId={patientId} encounterId={encounterId} onPatientIdChange={setPatientId} onEncounterIdChange={setEncounterId} />
     <MemoryTabs view={view} onChange={setView} />
-    {view === 'memory' && <><ClinicalQueryPanel query={queryInput} setQuery={setQueryInput} onSubmit={submitQuery} conversation={conversation} /><MemoryWorkspace context={displayedContext} timeline={timeline} conflicts={context?.conflicts ?? []} question={submittedQuestion} hasSearched={hasSearched} isLoading={isLoading} patientId={patientId} encounterId={encounterId} onFactClick={setSelectedFact} onApprove={approveFact} onReject={rejectFact} /></>}
+    {view === 'memory' && <><ClinicalQueryPanel query={queryInput} setQuery={setQueryInput} onSubmit={submitQuery} conversation={conversation} patientId={patientId} encounterId={encounterId} /><MemoryWorkspace context={displayedContext} timeline={timeline} conflicts={context?.conflicts ?? conflicts} question={submittedQuestion} hasSearched={hasSearched} isLoading={isLoading} patientId={patientId} encounterId={encounterId} onFactClick={setSelectedFact} onApprove={approveFact} onReject={rejectFact} /></>}
     {view === 'timeline' && <TimelineView events={timeline} onFactClick={setSelectedFact} />}
     {view === 'verified' && <VerifiedInformationTab context={displayedContext} onFactClick={setSelectedFact} />}
     {view === 'unverified' && <UnverifiedInformationTab context={displayedContext} onFactClick={setSelectedFact} onApprove={approveFact} onReject={rejectFact} />}
@@ -83,15 +91,13 @@ function MemoryTabs({ view, onChange }: { view: MemoryView; onChange: (view: Mem
   return <div className="memory-nav" role="tablist" aria-label="Patient memory views">{tabs.map(({ id, label, icon: Icon }) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'active' : ''} onClick={() => onChange(id)}><Icon /> {label}</button>)}</div>
 }
 
-function ClinicalQueryPanel({ query, setQuery, onSubmit, conversation }: { query: string; setQuery: (value: string) => void; onSubmit: (value: string) => void; conversation: string[] }) {
+function ClinicalQueryPanel({ query, setQuery, onSubmit, conversation, patientId, encounterId }: { query: string; setQuery: (value: string) => void; onSubmit: (value: string) => void; conversation: string[]; patientId: string; encounterId: string }) {
   const suggestions = ['Current medications', 'Recent medication changes', 'Allergy history', 'Recent hypertension history', 'Relevant procedures']
-  return <SectionCard title="Ask about this patient's history" eyebrow="CLINICAL SEARCH" className="retrieval-card conversational-card"><p className="memory-search-subtitle">Search the patient's clinical history using a natural-language question.</p><form onSubmit={(event) => { event.preventDefault(); onSubmit(query) }}><div className="conversation-input-wrap"><SearchIcon /><textarea aria-label="Ask about this patient's history" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onSubmit(query) } }} placeholder="What would you like to know about this patient's history?" rows={3} /><button className="primary-button" type="submit"><SearchIcon /> Ask</button></div></form><div className="query-context"><span>Ananya Mehta · Current consultation</span><span className="query-context-note">Patient and encounter context stays fixed for this search.</span></div><div className="suggested-questions"><span>Suggested questions</span>{suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => onSubmit(suggestion)}>{suggestion}</button>)}</div>{conversation.length > 0 && <div className="conversation-history">{conversation.map((question, index) => <div className="conversation-turn" key={`${question}-${index}`}><span className="conversation-speaker physician">YOU</span><p>{question}</p></div>)}</div>}</SectionCard>
+  return <SectionCard title="Ask about this patient's history" eyebrow="CLINICAL SEARCH" className="retrieval-card conversational-card"><p className="memory-search-subtitle">Search the patient's clinical history using a natural-language question.</p><form onSubmit={(event) => { event.preventDefault(); onSubmit(query) }}><div className="conversation-input-wrap"><SearchIcon /><textarea aria-label="Ask about this patient's history" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onSubmit(query) } }} placeholder="What would you like to know about this patient's history?" rows={3} /><button className="primary-button" type="submit"><SearchIcon /> Ask</button></div></form><div className="query-context"><span>Ananya Mehta · Current consultation</span><span className="query-context-note">Patient <strong>{patientId}</strong> · Encounter <strong>{encounterId}</strong></span></div><div className="suggested-questions"><span>Suggested questions</span>{suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => onSubmit(suggestion)}>{suggestion}</button>)}</div>{conversation.length > 0 && <div className="conversation-history">{conversation.map((question, index) => <div className="conversation-turn" key={`${question}-${index}`}><span className="conversation-speaker physician">YOU</span><p>{question}</p></div>)}</div>}</SectionCard>
 }
 
 function MemoryWorkspace({ context, timeline, conflicts, question, hasSearched, isLoading, patientId, encounterId, onFactClick, onApprove, onReject }: { context?: RetrievedContext; timeline: MemoryFact[]; conflicts: Conflict[]; question: string; hasSearched: boolean; isLoading: boolean; patientId: string; encounterId: string; onFactClick: (fact: MemoryFact) => void; onApprove: (fact: MemoryFact) => void; onReject: (fact: MemoryFact) => void }) {
-  if (!hasSearched) return <div className="memory-empty-state"><SearchIcon /><h2>Ask a question about this patient's history.</h2><p>Your structured clinical context will appear here after you search.</p></div>
-  if (isLoading || !context) return <div className="empty-loading" aria-live="polite">Loading relevant patient context…</div>
-  return <><div className="assistant-response"><span className="assistant-avatar">M</span><div><p className="eyebrow">MEDFLOW</p><strong>Here is the relevant clinical context.</strong><span>Structured information is kept separated by verification status and safety priority.</span></div></div><div className="memory-columns"><RelevantPatientContext context={context} question={question} onFactClick={onFactClick} onApprove={onApprove} onReject={onReject} /><RecentPatientActivity events={timeline} onFactClick={onFactClick} /></div><ConflictPreview conflicts={conflicts} patientId={patientId} encounterId={encounterId} onFactClick={onFactClick} /></>
+  return <><div className="memory-columns"><RelevantPatientContext context={context} question={question} hasSearched={hasSearched} isLoading={isLoading} onFactClick={onFactClick} onApprove={onApprove} onReject={onReject} /><RecentPatientActivity events={timeline} onFactClick={onFactClick} /></div><ConflictPreview conflicts={conflicts} patientId={patientId} encounterId={encounterId} onFactClick={onFactClick} /></>
 }
 
 type ContextItem = { fact: MemoryFact; verified: boolean }
@@ -108,11 +114,13 @@ function relevantItems(context: RetrievedContext, question: string): ContextItem
   return scored.sort((a, b) => b.score - a.score || a.index - b.index).slice(0, medicationQuery ? 6 : 5).map(({ item }) => item)
 }
 
-function RelevantPatientContext({ context, question, onFactClick, onApprove, onReject }: { context: RetrievedContext; question: string; onFactClick: (fact: MemoryFact) => void; onApprove: (fact: MemoryFact) => void; onReject: (fact: MemoryFact) => void }) {
+function RelevantPatientContext({ context, question, hasSearched, isLoading, onFactClick, onApprove, onReject }: { context?: RetrievedContext; question: string; hasSearched: boolean; isLoading: boolean; onFactClick: (fact: MemoryFact) => void; onApprove: (fact: MemoryFact) => void; onReject: (fact: MemoryFact) => void }) {
+  if (!hasSearched) return <SectionCard title="Relevant patient context" eyebrow="CURRENT QUERY" className="context-column-card"><div className="memory-empty-state"><SearchIcon /><p>Ask a question to see relevant patient context.</p></div></SectionCard>
+  if (isLoading || !context) return <SectionCard title="Relevant patient context" eyebrow="CURRENT QUERY" className="context-column-card"><div className="empty-loading" aria-live="polite">Loading relevant patient context…</div></SectionCard>
   const items = relevantItems(context, question)
   const medicationItems = items.filter(({ fact }) => fact.entity_type.toLowerCase() === 'medication')
   const otherItems = items.filter(({ fact }) => fact.entity_type.toLowerCase() !== 'medication')
-  return <SectionCard title="Relevant patient context" eyebrow="CURRENT QUERY" action={<span className="verified-heading"><CheckIcon /> Structured result</span>} className="context-column-card"><div className="relevant-context-content">{medicationItems.length > 0 && <div className="relevant-group"><h3>Relevant medication history</h3><MedicationHistory facts={medicationItems.map(({ fact }) => fact)} onFactClick={onFactClick} /></div>}{otherItems.length > 0 && <div className="relevant-group"><h3>Relevant records</h3><div className="relevant-fact-list">{otherItems.map(({ fact, verified }) => <MemoryFactCard key={fact.event_id} fact={fact} onProvenance={onFactClick} onApprove={verified ? undefined : onApprove} onReject={verified ? undefined : onReject} />)}</div></div>}{medicationItems.length === 0 && otherItems.length === 0 && <p className="category-empty">No matching information was found in the structured patient context.</p>}</div></SectionCard>
+  return <SectionCard title="Relevant patient context" eyebrow="CURRENT QUERY" action={<span className="verified-heading"><CheckIcon /> Structured result</span>} className="context-column-card"><div className="assistant-response"><span className="assistant-avatar">M</span><div><p className="eyebrow">MEDFLOW</p><strong>Here is the relevant clinical context.</strong><span>Structured information is kept separated by verification status and safety priority.</span></div></div><div className="relevant-context-content">{medicationItems.length > 0 && <div className="relevant-group"><h3>Relevant medication history</h3><MedicationHistory facts={medicationItems.map(({ fact }) => fact)} onFactClick={onFactClick} /></div>}{otherItems.length > 0 && <div className="relevant-group"><h3>Relevant records</h3><div className="relevant-fact-list">{otherItems.map(({ fact, verified }) => <MemoryFactCard key={fact.event_id} fact={fact} onProvenance={onFactClick} onApprove={verified ? undefined : onApprove} onReject={verified ? undefined : onReject} />)}</div></div>}{medicationItems.length === 0 && otherItems.length === 0 && <p className="category-empty">No matching information was found in the structured patient context.</p>}</div></SectionCard>
 }
 
 function MedicationHistory({ facts, onFactClick }: { facts: MemoryFact[]; onFactClick: (fact: MemoryFact) => void }) {

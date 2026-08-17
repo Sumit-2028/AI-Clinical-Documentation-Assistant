@@ -1,11 +1,9 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { ActivityIcon, ArchiveIcon, BellIcon, ClipboardIcon, FileIcon, GridIcon, HeartIcon, SearchIcon, UserIcon } from './icons'
+import { BellIcon, GridIcon, HeartIcon, SearchIcon, UserIcon } from './icons'
 
 const navItems = [
   { label: 'Dashboard', path: '/', icon: GridIcon }, { label: 'Patients', path: '/patients', icon: UserIcon },
-  { label: 'Upload & Process', path: '/upload', icon: UploadIconPlaceholder }, { label: 'Clinical intelligence', path: '/clinical-nlp', icon: ActivityIcon }, { label: 'Review Queue', path: '/review-queue', icon: ClipboardIcon },
-  { label: 'Patient Memory', path: '/memory', icon: HeartIcon },
-  { label: 'Documentation', path: '/documentation', icon: FileIcon }, { label: 'Audit Log', path: '/audit-log', icon: ArchiveIcon },
+  { label: 'Upload & Process', path: '/upload', icon: UploadIconPlaceholder }, { label: 'Patient Memory', path: '/memory', icon: HeartIcon },
 ]
 function UploadIconPlaceholder(props: React.SVGProps<SVGSVGElement>) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}><path d="M12 16V4m0 0L8 8m4-4 4 4M5 14v5h14v-5"/></svg> }
 
