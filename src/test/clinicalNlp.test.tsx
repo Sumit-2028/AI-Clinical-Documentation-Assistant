@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
@@ -12,6 +12,8 @@ const response = clinicalNlpFixture as unknown as Step2Response
 const medication = response.clinical_events.find((event) => event.entity_type === 'Medication')!
 const lab = response.clinical_events.find((event) => event.entity_type === 'LabFinding')!
 const invalid = response.clinical_events.find((event) => event.validation_status !== 'valid')!
+const valid = response.clinical_events.find((event) => event.validation_status === 'valid')!
+const reviewRequiredCount = response.clinical_events.filter((event) => event.validation_status !== 'valid').length
 
 function renderCard(event: ClinicalEvent) { return render(<ClinicalEventCard event={event} onProvenance={() => undefined} />) }
 function renderApp() { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/clinical-nlp']}><App /></MemoryRouter></QueryClientProvider>) }
@@ -26,7 +28,7 @@ describe('Clinical NLP experience', () => {
     expect(screen.getByText('109081006')).toBeInTheDocument()
     expect(screen.getByText('has dosage')).toBeInTheDocument()
     expect(screen.getByText('twice daily')).toBeInTheDocument()
-    expect(screen.getByText('Resolved: twice daily')).toBeInTheDocument()
+    expect(screen.getByText('Suggested interpretation: twice daily')).toBeInTheDocument()
   })
 
   it('renders lab attributes and temporal context', () => {
@@ -48,11 +50,45 @@ describe('Clinical NLP experience', () => {
     renderApp()
     expect(await screen.findByRole('heading', { name: 'Clinical intelligence' })).toBeInTheDocument()
     expect(screen.getByText('Ready to add to patient record')).toBeInTheDocument()
+    expect(await screen.findByText(`${reviewRequiredCount} ${reviewRequiredCount === 1 ? 'finding needs' : 'findings need'} your review`)).toBeInTheDocument()
+    expect(screen.getByText('Show source text')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View all clinical findings' })).toBeInTheDocument()
+    const findingsSection = screen.getByRole('heading', { name: 'Clinical findings' }).closest('section')!
+    expect(within(findingsSection).queryByText(valid.event_local_id)).not.toBeInTheDocument()
+    expect(within(findingsSection).getByRole('button', { name: 'Reject finding' })).toBeInTheDocument()
+    expect(within(findingsSection).queryByRole('button', { name: 'Add to patient record' })).not.toBeInTheDocument()
+    fireEvent.click(within(findingsSection).getByRole('button', { name: 'Reject finding' }))
+    const rejectDialog = screen.getByRole('dialog', { name: 'Reject this finding?' })
+    fireEvent.click(within(rejectDialog).getByRole('button', { name: 'Reject finding' }))
+    expect(await screen.findByText(reviewRequiredCount === 1 ? 'No findings require your review' : `${reviewRequiredCount - 1} ${reviewRequiredCount === 2 ? 'finding needs' : 'findings need'} your review`)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View all clinical findings' }))
+    expect(screen.getByText('Hide additional findings')).toBeInTheDocument()
+    expect(await screen.findByText('Rejected')).toBeInTheDocument()
+    expect(within(findingsSection).getByText(valid.event_local_id)).toBeInTheDocument()
+    fireEvent.click(within(findingsSection).getAllByRole('button', { name: 'Add to patient record' })[0])
+    const addDialog = screen.getByRole('dialog', { name: 'Add this finding to the patient record?' })
+    fireEvent.click(within(addDialog).getByRole('button', { name: 'Add to patient record' }))
+    expect(await screen.findByText('Added to patient record')).toBeInTheDocument()
     expect((await screen.findAllByText('No history of diabetes')).length).toBeGreaterThan(0)
     expect((await screen.findAllByText('This finding cannot be added to the patient record')).length).toBeGreaterThan(0)
     render(<ProvenanceDrawer event={medication} onClose={() => undefined} />)
     expect(screen.getByRole('dialog', { name: 'Source information' })).toBeInTheDocument()
     expect(screen.getByText('Source text')).toBeInTheDocument()
     expect(screen.getByText('Start')).toBeInTheDocument()
+  })
+
+  it('allows a physician to use or edit an ambiguous interpretation without changing the source', async () => {
+    renderApp()
+    expect(await screen.findByRole('heading', { name: 'Clinical intelligence' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View all clinical findings' }))
+    expect(screen.getAllByText('Abbreviation needs review').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(`Suggested interpretation: ${medication.ambiguous_abbreviation_resolved.resolved_value}`).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit interpretation' })[0])
+    const dialog = screen.getByRole('dialog', { name: 'Correct abbreviation' })
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Interpretation' }), { target: { value: 'Once daily' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save correction' }))
+    expect(await screen.findByText('Physician corrected')).toBeInTheDocument()
+    expect(screen.getAllByText('Once daily').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(medication.original_text).length).toBeGreaterThan(0)
   })
 })
