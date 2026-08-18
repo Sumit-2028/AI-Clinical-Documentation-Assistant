@@ -1,0 +1,78 @@
+[
+  {
+    "concept": "Allergy to penicillin",
+    "snomed_ct_id": "91936005",
+    "clinical_domain": "allergy",
+    "synonyms": [
+      "penicillin allergy",
+      "allergy to penicillin"
+    ]
+  },
+  {
+    "concept": "Hypertension",
+    "snomed_ct_id": "38341003",
+    "clinical_domain": "cardiology",
+    "synonyms": [
+      "hypertension",
+      "high blood pressure"
+    ]
+  },
+  {
+    "concept": "Diabetes mellitus",
+    "snomed_ct_id": "73211009",
+    "clinical_domain": "endocrinology",
+    "synonyms": [
+      "diabetes mellitus",
+      "diabetes"
+    ]
+  },
+  {
+    "concept": "Dyspnea",
+    "snomed_ct_id": "267036007",
+    "clinical_domain": "respiratory",
+    "synonyms": [
+      "shortness of breath",
+      "dyspnea"
+    ]
+  },
+  {
+    "concept": "Fever",
+    "snomed_ct_id": "386661006",
+    "clinical_domain": "general medicine",
+    "synonyms": [
+      "fever"
+    ]
+  },
+  {
+    "concept": "Cough",
+    "snomed_ct_id": "49727002",
+    "clinical_domain": "respiratory",
+    "synonyms": [
+      "cough"
+    ]
+  },
+  {
+    "concept": "Chest pain",
+    "snomed_ct_id": "29857009",
+    "clinical_domain": "cardiology",
+    "synonyms": [
+      "chest pain"
+    ]
+  },
+  {
+    "concept": "Metformin",
+    "snomed_ct_id": null,
+    "clinical_domain": "medication",
+    "synonyms": [
+      "metformin"
+    ]
+  },
+  {
+    "concept": "Insulin",
+    "snomed_ct_id": null,
+    "clinical_domain": "medication",
+    "synonyms": [
+      "insulin"
+    ]
+  }
+]
