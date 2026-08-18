@@ -4,14 +4,10 @@ import json
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
-from urllib.parse import quote
 
 from services.ai_adapters import (
     AIProviderError,
     AIProviderResponseError,
-    JSONHTTPClient,
-    env_float,
-    env_int,
 )
 from typing import Protocol
 
@@ -35,90 +31,64 @@ class ContextualizationAdapter(Protocol):
         ...
 
 
-class MockGeminiContextualizationAdapter:
-    """Deterministic contextualizer with explicit mock provenance."""
-
-    model_name = "mock-gemini-contextualizer"
-
-    def contextualize(self, text: str, entity_text: str) -> ContextualizationResult:
-        assertion = detect_assertion(text, entity_text)
-        temporal = extract_temporal_context(text)
-        return ContextualizationResult(
-            assertion=assertion.assertion,
-            clinical_status=(
-                "inactive"
-                if temporal.temporal_context == "past" and assertion.assertion == "affirmed"
-                else assertion.clinical_status
-            ),
-            temporal_context=temporal.temporal_context,
-            temporal_date=temporal.temporal_date,
-            confidence=min(assertion.confidence, temporal.confidence, 0.84),
-        )
-
-
 class ProductionGeminiContextualizationAdapter:
+    """Gemini contextualization using the official google-genai SDK."""
+
     model_name = "gemini-contextualizer"
 
     def __init__(
         self,
-        model=None,
         *,
-        api_key: str | None = None,
+        api_key: str,
         model_name: str | None = None,
-        base_url: str | None = None,
-        endpoint: str | None = None,
         timeout_seconds: float = 15.0,
         max_retries: int = 2,
-        http_client: JSONHTTPClient | None = None,
     ) -> None:
-        self.model = model
         self.api_key = api_key
         self.model_name = model_name or self.model_name
-        self.base_url = (base_url or "https://generativelanguage.googleapis.com/v1beta").rstrip(
-            "/"
-        )
-        self.endpoint = endpoint
-        self.http_client = http_client or JSONHTTPClient(
-            timeout_seconds=timeout_seconds,
-            max_retries=max_retries,
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
+        # Initialize the google-genai client
+        self._client = self._create_client()
+
+    def _create_client(self):
+        from google import genai
+        from google.genai.types import HttpOptions
+
+        return genai.Client(
+            api_key=self.api_key,
+            http_options=HttpOptions(
+                timeout=self.timeout_seconds * 1000,  # Convert to milliseconds
+            ),
         )
 
     def contextualize(self, text: str, entity_text: str) -> ContextualizationResult:
-        if self.model is not None:
-            return self.model(text, entity_text)
-        if not self.api_key:
-            raise NLPProviderUnavailableError(
-                "Gemini contextualization requires GEMINI_API_KEY or an injected model."
-            )
+        from google.genai.types import GenerateContentConfig
 
-        endpoint = self.endpoint or (
-            f"{self.base_url}/models/{quote(self.model_name, safe='')}:generateContent"
-            f"?key={quote(self.api_key, safe='')}"
-        )
-        response = self.http_client.post_json(
-            endpoint,
-            {
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [{"text": _contextualization_prompt(text, entity_text)}],
-                    }
-                ],
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "temperature": 0,
-                },
-            },
-            provider=self.model_name,
-            operation="clinical_contextualization",
-        )
-        content = _gemini_text(response)
+        prompt = _contextualization_prompt(text, entity_text)
+
+        try:
+            response = self._client.models.generate_content(
+                model=self.model_name,
+                contents=[{"role": "user", "parts": [{"text": prompt}]}],
+                config=GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0,
+                ),
+            )
+        except Exception as exc:
+            raise AIProviderResponseError(
+                f"Gemini model '{self.model_name}' request failed: {exc}"
+            ) from exc
+
+        content = self._extract_text(response)
         try:
             parsed = json.loads(content)
         except (TypeError, json.JSONDecodeError) as exc:
             raise AIProviderResponseError(
-                f"Gemini model '{self.model_name}' returned invalid contextualization JSON."
+                f"Gemini model '{self.model_name}' returned invalid contextualization JSON: {content[:200]}"
             ) from exc
+
         return _contextualization_result(parsed, self.model_name)
 
 
@@ -135,16 +105,24 @@ def _contextualization_prompt(text: str, entity_text: str) -> str:
     )
 
 
-def _gemini_text(response: dict[str, Any] | Any) -> str:
-    candidates = response.get("candidates") if isinstance(response, dict) else None
-    if isinstance(candidates, list) and candidates:
-        content = candidates[0].get("content", {})
-        parts = content.get("parts", []) if isinstance(content, dict) else []
-        if parts and isinstance(parts[0], dict) and isinstance(parts[0].get("text"), str):
-            return parts[0]["text"]
-    direct = response.get("text") if isinstance(response, dict) else None
+def _extract_text(response: Any) -> str:
+    """Extract text content from google-genai response."""
+    # Try candidates first
+    candidates = getattr(response, "candidates", None)
+    if candidates:
+        content = getattr(candidates[0], "content", None)
+        if content:
+            parts = getattr(content, "parts", None)
+            if parts:
+                part_text = getattr(parts[0], "text", None)
+                if part_text:
+                    return part_text
+
+    # Fallback to direct text attribute
+    direct = getattr(response, "text", None)
     if isinstance(direct, str):
         return direct
+
     raise AIProviderResponseError(
         "Gemini response did not contain a text candidate."
     )

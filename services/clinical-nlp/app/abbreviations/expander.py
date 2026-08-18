@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from ..preprocess import PreprocessedField
+from ..pipeline_types import AbbreviationSpan
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class ExpandedField:
     source: PreprocessedField
     processed_text: str
     replacements: tuple[tuple[str, str], ...]
+    abbreviation_spans: tuple[AbbreviationSpan, ...]
 
 
 DEFAULT_ABBREVIATIONS: dict[str, dict[str, Any]] = {
@@ -149,13 +151,32 @@ def expand_abbreviations(text: str) -> str:
     return expanded
 
 
+def _to_abbreviation_span(item: DetectedAbbreviation) -> AbbreviationSpan:
+    """Convert internal DetectedAbbreviation to contract AbbreviationSpan."""
+    status = "resolved"
+    if item.is_ambiguous:
+        status = "ambiguous"
+    elif item.expansion is None:
+        status = "unknown"
+    return AbbreviationSpan(
+        span={"start": item.start, "end": item.end},
+        surface_text=item.surface_text,
+        status=status,
+        expansion=item.expansion,
+        candidates=list(item.candidate_expansions),
+        resolution_confidence=1.0 if not item.is_ambiguous else 0.5,
+    )
+
+
 def expand_field(field: PreprocessedField) -> ExpandedField:
     """Expand abbreviations in a preprocessed field and track replacement tuples."""
     detections = detect_abbreviations(field.processed_text)
     expanded = expand_abbreviations(field.processed_text)
 
     replacements: list[tuple[str, str]] = []
+    abbreviation_spans: list[AbbreviationSpan] = []
     for item in detections:
+        abbreviation_spans.append(_to_abbreviation_span(item))
         if item.expansion and not item.is_ambiguous:
             replacements.append((item.surface_text, item.expansion))
 
@@ -163,4 +184,5 @@ def expand_field(field: PreprocessedField) -> ExpandedField:
         source=field,
         processed_text=expanded,
         replacements=tuple(replacements),
+        abbreviation_spans=tuple(abbreviation_spans),
     )

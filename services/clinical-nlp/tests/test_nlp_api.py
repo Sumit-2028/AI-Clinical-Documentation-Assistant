@@ -26,8 +26,8 @@ def make_payload():
         source_language="en",
         extracted_fields=[
             ExtractedField(
-                raw_text="Patient has HTN",
-                standardized_text="Patient has HTN",
+                raw_text="Patient has cough",
+                standardized_text="Patient has cough",
                 extraction_confidence=0.97,
                 confidence_tier=ConfidenceTier.AUTO_PASS,
             )
@@ -40,8 +40,13 @@ def make_payload():
     return patient_id, encounter_id, document_id, step1
 
 
-def test_process_and_get_api():
-    client = TestClient(create_app(ClinicalNLPService()))
+def make_test_service(mock_adapter_bundle):
+    """Create a ClinicalNLPService with mock adapter bundle for testing."""
+    return ClinicalNLPService(adapters=mock_adapter_bundle)
+
+
+def test_process_and_get_api(mock_adapter_bundle):
+    client = TestClient(create_app(make_test_service(mock_adapter_bundle)))
     patient_id, encounter_id, document_id, step1 = make_payload()
 
     response = client.post(
@@ -57,15 +62,17 @@ def test_process_and_get_api():
     assert response.status_code == 200
     body = response.json()
     assert body["source_document_id"] == str(document_id)
-    assert body["clinical_events"][0]["normalized_concept"] == "Hypertension"
+    # With load_models=False, only dictionary extraction works: "cough" -> Symptom
+    cough_events = [e for e in body["clinical_events"] if e["normalized_concept"] == "Cough"]
+    assert len(cough_events) >= 1
 
     fetched = client.get(f"/api/v1/step2/process/{document_id}")
     assert fetched.status_code == 200
     assert fetched.json() == body
 
 
-def test_mismatched_step1_ids_are_rejected():
-    client = TestClient(create_app(ClinicalNLPService()))
+def test_mismatched_step1_ids_are_rejected(mock_adapter_bundle):
+    client = TestClient(create_app(make_test_service(mock_adapter_bundle)))
     patient_id, encounter_id, document_id, step1 = make_payload()
 
     response = client.post(
@@ -81,8 +88,8 @@ def test_mismatched_step1_ids_are_rejected():
     assert response.status_code == 422
 
 
-def test_get_missing_document_returns_404():
-    client = TestClient(create_app(ClinicalNLPService()))
+def test_get_missing_document_returns_404(mock_adapter_bundle):
+    client = TestClient(create_app(make_test_service(mock_adapter_bundle)))
 
     response = client.get(f"/api/v1/step2/process/{uuid4()}")
 

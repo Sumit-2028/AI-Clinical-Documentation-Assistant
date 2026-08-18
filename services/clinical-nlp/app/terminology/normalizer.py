@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from ..abbreviations import ExpandedField
+from ..pipeline_types import NormalizedConcept
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,12 @@ class TerminologyMatch:
     snomed_ct_id: str | None
     clinical_domain: str
     matched_text: str
+
+
+@dataclass(frozen=True)
+class NormalizedConceptsResult:
+    """Result of normalizing all concepts in a field's text."""
+    matches: list[NormalizedConcept]
 
 
 DEFAULT_TERMINOLOGY_ENTRIES: list[dict[str, Any]] = [
@@ -153,3 +160,40 @@ def normalize_terminology(text: str) -> TerminologyMatch:
 
 def normalize_field(field: ExpandedField) -> TerminologyMatch:
     return normalize_terminology(field.processed_text)
+
+
+def normalize_all_concepts(text: str) -> list[NormalizedConcept]:
+    """Find all known concepts in text with their character spans.
+
+    Returns a list of NormalizedConcept objects, each with the span where
+    the concept was matched in the input text.
+    """
+    if not text:
+        return []
+
+    lowered = text.casefold()
+    matches: list[NormalizedConcept] = []
+    seen_spans: set[tuple[int, int]] = set()
+
+    # Sort by phrase length descending to match longer phrases first
+    for phrase, concept, code, domain in TERMINOLOGY:
+        # Find all non-overlapping occurrences
+        for match in re.finditer(rf"(?<!\w){re.escape(phrase)}(?!\w)", lowered, flags=re.IGNORECASE):
+            span = (match.start(), match.end())
+            # Skip if this span overlaps with an already matched concept
+            if any(span[0] < end and span[1] > start for start, end in seen_spans):
+                continue
+            seen_spans.add(span)
+            matches.append(
+                NormalizedConcept(
+                    span={"start": span[0], "end": span[1]},
+                    surface_text=match.group(0),
+                    normalized_concept=concept,
+                    snomed_ct_id=code,
+                    clinical_domain=domain,
+                )
+            )
+
+    # Sort by start position
+    matches.sort(key=lambda m: m.span.get("start", 0) if isinstance(m.span, dict) else 0)
+    return matches

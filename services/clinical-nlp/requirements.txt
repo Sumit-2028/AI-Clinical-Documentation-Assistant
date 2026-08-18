@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 pydantic
+pydantic-settings
 sqlalchemy
 psycopg2-binary
 pytest
@@ -19,9 +20,5 @@ scispacy==0.5.4
 https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_sci_md-0.5.4.tar.gz
 https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_ner_bc5cdr_md-0.5.4.tar.gz
 
-# Gemini SDK — matches the JSON-HTTP pattern already used in
-# services/clinical-nlp/app/contextualization/adapter.py. We add the SDK
-# explicitly so structured-output mode is available without an extra
-# dependency at runtime. The existing adapter code calls Gemini via raw
-# HTTPS, so this is additive — not a replacement.
+# Gemini SDK — uses the official google-genai SDK for structured output
 google-genai>=1.0,<2.0

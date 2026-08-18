@@ -1,16 +1,12 @@
 from dataclasses import dataclass
-import os
 
-from services.ai_adapters import env_float, env_int
-
+from .config import settings
 from .contextualization import (
     ContextualizationAdapter,
-    MockGeminiContextualizationAdapter,
     ProductionGeminiContextualizationAdapter,
 )
 from .ner import (
     HybridNERAdapter,
-    MockClinicalNERAdapter,
     NERAdapter,
 )
 
@@ -21,22 +17,17 @@ class NLPAdapterBundle:
     contextualization: ContextualizationAdapter
 
 
-def build_adapter_bundle(mode: str | None = None) -> NLPAdapterBundle:
-    selected_mode = (mode or os.getenv("STEP2_NLP_MODE", "mock")).lower()
-    if selected_mode == "mock":
-        return NLPAdapterBundle(
-            ner=MockClinicalNERAdapter(),
-            contextualization=MockGeminiContextualizationAdapter(),
-        )
+def build_adapter_bundle() -> NLPAdapterBundle:
+    """Build production adapter bundle using Step 2 settings.
 
+    Requires GEMINI_API_KEY to be set in environment.
+    """
     return NLPAdapterBundle(
         ner=HybridNERAdapter(),
         contextualization=ProductionGeminiContextualizationAdapter(
-            api_key=os.getenv("GEMINI_API_KEY"),
-            model_name=os.getenv("GEMINI_MODEL"),
-            base_url=os.getenv("GEMINI_API_URL"),
-            endpoint=os.getenv("GEMINI_ENDPOINT"),
-            timeout_seconds=env_float("AI_TIMEOUT_SECONDS", 15.0),
-            max_retries=env_int("AI_MAX_RETRIES", 2),
+            api_key=settings.gemini_api_key,
+            model_name=settings.gemini_model,
+            timeout_seconds=settings.ai_timeout_seconds,
+            max_retries=settings.ai_max_retries,
         ),
     )

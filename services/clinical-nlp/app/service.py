@@ -3,6 +3,7 @@ from uuid import UUID
 
 from contracts.schemas import ClinicalEventBatch, ProcessingStatus, Step1Output
 
+from .adapters import NLPAdapterBundle, build_adapter_bundle
 from .pipeline import ClinicalNLPPipeline
 from .repository import ClinicalEventRepository, InMemoryClinicalEventRepository
 from .validation import ClinicalEventValidationError
@@ -25,9 +26,10 @@ class ClinicalNLPService:
         self,
         *,
         pipeline: ClinicalNLPPipeline | None = None,
+        adapters: NLPAdapterBundle | None = None,
         repository: ClinicalEventRepository | None = None,
     ) -> None:
-        self.pipeline = pipeline or ClinicalNLPPipeline()
+        self.pipeline = pipeline or ClinicalNLPPipeline(adapters=adapters or build_adapter_bundle())
         self.repository = repository or InMemoryClinicalEventRepository()
 
     def process(

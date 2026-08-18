@@ -17,12 +17,10 @@ from typing import Protocol
 #   - "bc5cdr"       : en_ner_bc5cdr_md Disease / Chemical (->Medication)
 #   - "regex"        : dosage/route numeric patterns
 #   - "dictionary"   : symptom/allergy/procedure/lab curated lists
-#   - "mock"         : development mock NER
 EXTRACTION_SOURCE_SCI = "scispacy"
 EXTRACTION_SOURCE_BC5CDR = "bc5cdr"
 EXTRACTION_SOURCE_REGEX = "regex"
 EXTRACTION_SOURCE_DICTIONARY = "dictionary"
-EXTRACTION_SOURCE_MOCK = "mock"
 
 
 @dataclass(frozen=True)
