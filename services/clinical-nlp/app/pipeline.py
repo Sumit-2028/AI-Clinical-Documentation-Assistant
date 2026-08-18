@@ -16,8 +16,10 @@ class ClinicalNLPPipeline:
         events: list[ClinicalEvent] = []
         for preprocessed in preprocess_step1_output(step1_output):
             expanded = expand_field(preprocessed)
-            field_terminology = normalize_field(expanded)
-            entities = self.adapters.ner.extract(expanded.processed_text)
+            if hasattr(self.adapters.ner, "extract_with_enrichment"):
+                entities = self.adapters.ner.extract_with_enrichment(expanded)
+            else:
+                entities = self.adapters.ner.extract(expanded.processed_text)
             for entity in entities:
                 terminology = normalize_terminology(entity.text)
                 if entity.entity_type == "clinical_statement":
