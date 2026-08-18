@@ -311,6 +311,7 @@ def test_gateway_mounts_all_existing_pipeline_contract_paths():
         "/api/v1/step1/documents/handwritten",
         "/api/v1/step1/documents/multilingual",
         "/api/v1/step1/documents/{document_id}",
+        "/api/v1/step1/documents/{document_id}/source",
         "/api/v1/step1/documents/{document_id}/human-verify",
         "/api/v1/step2/process",
         "/api/v1/step2/process/{document_id}",

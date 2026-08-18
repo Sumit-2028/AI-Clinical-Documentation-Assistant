@@ -168,3 +168,93 @@ def test_service_still_works_without_a_caller_supplied_document_id():
     )
 
     assert output.document_id is not None
+
+
+# --- retrieval endpoint -----------------------------------------------------
+
+
+def source_url(client, document_id):
+    return client.get(f"/api/v1/step1/documents/{document_id}/source")
+
+
+def test_source_endpoint_returns_a_link_to_the_stored_document():
+    client, _, _ = make_client()
+    document_id = upload(client, patient_id=uuid4()).json()["document_id"]
+
+    response = source_url(client, document_id)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["document_id"] == document_id
+    assert body["content_type"] == "text/plain"
+    assert body["size_bytes"] == len(b"Patient has fever")
+    assert body["download_url"]
+    assert body["expires_at"]
+
+
+def test_source_endpoint_names_the_download_after_the_document_id():
+    client, _, _ = make_client()
+    document_id = upload(client, patient_id=uuid4()).json()["document_id"]
+
+    body = source_url(client, document_id).json()
+
+    # Never the uploaded filename, which can itself carry patient identifiers.
+    assert f"{document_id}.txt" in body["download_url"]
+    assert "note.txt" not in body["download_url"]
+
+
+def test_source_endpoint_404s_for_an_unknown_document():
+    client, _, _ = make_client()
+
+    response = source_url(client, uuid4())
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found."
+
+
+def test_source_endpoint_404s_distinctly_when_no_file_was_stored():
+    client, _, _ = make_client()
+    response = client.post(
+        "/api/v1/step1/documents/multilingual",
+        json={
+            "patient_id": str(uuid4()),
+            "encounter_id": str(uuid4()),
+            "text_input": "Paciente con fiebre",
+            "source_language": "es",
+        },
+    )
+
+    result = source_url(client, response.json()["document_id"])
+
+    assert result.status_code == 404
+    assert result.json()["detail"] == "No stored source document."
+
+
+def test_source_endpoint_503s_when_storage_is_unavailable():
+    storage = InMemoryObjectStorage()
+    client, service, _ = make_client(storage=storage)
+    document_id = upload(client, patient_id=uuid4()).json()["document_id"]
+
+    class Unavailable:
+        backend_name = "unavailable"
+
+        def presign_get(self, **_):
+            raise ObjectStorageRequestError("connection reset")
+
+    client.app.state.object_storage = Unavailable()
+    response = source_url(client, document_id)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Document storage is unavailable."
+    assert "connection reset" not in response.text
+
+
+def test_source_endpoint_404s_when_the_object_is_gone():
+    client, _, storage = make_client()
+    document_id = upload(client, patient_id=uuid4()).json()["document_id"]
+
+    storage._objects.clear()
+    response = source_url(client, document_id)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No stored source document."

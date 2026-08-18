@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,7 +24,25 @@ class HumanVerificationRequest(BaseModel):
     approved: bool
 
 
+class DocumentSourceResponse(BaseModel):
+    """Short-lived link to a document's original uploaded bytes.
+
+    Service-local on purpose.  The frozen Step 1 contract forbids extra fields,
+    so storage location is exposed through this separate response rather than
+    by widening Step1Output.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    document_id: UUID
+    download_url: str
+    expires_at: datetime
+    content_type: str
+    size_bytes: int
+
+
 __all__ = [
+    "DocumentSourceResponse",
     "HumanVerificationRequest",
     "MultilingualDocumentRequest",
     "Step1Output",

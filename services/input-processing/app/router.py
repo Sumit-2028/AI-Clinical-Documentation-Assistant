@@ -5,11 +5,19 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from services.object_storage import (
     ObjectStorage,
     ObjectStorageError,
+    ObjectStorageNotFoundError,
     StoredObject,
     build_source_key,
+    configured_presign_expiry,
+    download_filename,
 )
 
-from .schemas import HumanVerificationRequest, MultilingualDocumentRequest, Step1Output
+from .schemas import (
+    DocumentSourceResponse,
+    HumanVerificationRequest,
+    MultilingualDocumentRequest,
+    Step1Output,
+)
 from .service import (
     DocumentNotFoundError,
     FieldNotFoundError,
@@ -142,6 +150,54 @@ def get_document(
         return service.get_document(document_id)
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Document not found.") from exc
+
+
+@router.get("/{document_id}/source", response_model=DocumentSourceResponse)
+def get_document_source(
+    document_id: UUID,
+    service: InputProcessingService = Depends(get_step1_service),
+    storage: ObjectStorage = Depends(get_object_storage),
+) -> DocumentSourceResponse:
+    """Return a short-lived link to the document's original bytes.
+
+    The link is a bearer credential for its lifetime: anyone holding it can
+    fetch the document without presenting a token, so the expiry is kept short.
+    """
+
+    try:
+        stored = service.get_source_object(document_id)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Document not found.") from exc
+
+    if stored is None:
+        # The document exists but has no stored file: multilingual input, or an
+        # upload predating object storage.  Distinct message from the above so
+        # the two cases are tellable apart.
+        raise HTTPException(status_code=404, detail="No stored source document.")
+
+    try:
+        presigned = storage.presign_get(
+            key=stored.key,
+            expires_in=configured_presign_expiry(),
+            download_filename=download_filename(document_id, stored.content_type),
+        )
+    except ObjectStorageNotFoundError as exc:
+        raise HTTPException(
+            status_code=404, detail="No stored source document."
+        ) from exc
+    except ObjectStorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Document storage is unavailable.",
+        ) from exc
+
+    return DocumentSourceResponse(
+        document_id=document_id,
+        download_url=presigned.url,
+        expires_at=presigned.expires_at,
+        content_type=presigned.content_type,
+        size_bytes=presigned.size_bytes,
+    )
 
 
 @router.post("/{document_id}/human-verify", response_model=Step1Output)
