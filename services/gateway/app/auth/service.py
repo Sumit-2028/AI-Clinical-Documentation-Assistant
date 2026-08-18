@@ -1,3 +1,5 @@
+import secrets
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -27,10 +29,27 @@ class RegistrationRoleError(ValueError):
 
 
 PUBLIC_REGISTRATION_ROLES = frozenset({"physician", "patient"})
+PUBLIC_PATIENT_ID_MIN = 10**6
+PUBLIC_PATIENT_ID_MAX = 10**8 - 1
 
 
 def normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def generate_public_patient_id(db: Session) -> int:
+    """Return an unused 7/8 digit public patient identifier.
+
+    The database unique constraint is the final collision guard.  Checking in
+    the current transaction keeps normal allocation cheap and makes a random
+    collision retryable before the insert is attempted.
+    """
+
+    for _ in range(20):
+        candidate = secrets.randbelow(PUBLIC_PATIENT_ID_MAX - PUBLIC_PATIENT_ID_MIN + 1) + PUBLIC_PATIENT_ID_MIN
+        if db.query(Patient).filter(Patient.public_patient_id == candidate).first() is None:
+            return candidate
+    raise RuntimeError("Unable to allocate a unique patient identifier.")
 
 
 def register_user(
@@ -64,7 +83,13 @@ def register_user(
         db.add(user)
         db.flush()
         if role == "patient":
-            db.add(Patient(user_id=user.id, display_name=clean_name))
+            db.add(
+                Patient(
+                    user_id=user.id,
+                    display_name=clean_name,
+                    public_patient_id=generate_public_patient_id(db),
+                )
+            )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -76,7 +101,7 @@ def register_user(
     return user
 
 
-def patient_id_for_user(db: Session, user_id: UUID) -> UUID | None:
+def patient_id_for_user(db: Session, user_id: UUID) -> str | None:
     """Return the durable patient profile linked to a user, if one exists."""
 
     try:
@@ -84,7 +109,10 @@ def patient_id_for_user(db: Session, user_id: UUID) -> UUID | None:
     except AttributeError:
         # Lightweight auth test sessions may only implement the users table.
         return None
-    return patient.id if patient is not None else None
+    if patient is None:
+        return None
+    public_id = getattr(patient, "public_patient_id", None)
+    return str(public_id) if public_id is not None else str(patient.id)
 
 
 def user_response_data(db: Session, user: User) -> dict[str, object]:

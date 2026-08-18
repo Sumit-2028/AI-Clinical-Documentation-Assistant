@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent } from '
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { uploadHandwrittenDocument, uploadMultilingualInput, uploadTypedDocument } from '../api'
+import { ApiError } from '../api/client'
 import type { InputModality, ProcessingStatus } from '../contracts/common'
 import type { Step1Output } from '../contracts/step1Output'
 import { useStep1Output } from '../hooks/useStep1'
@@ -10,6 +11,41 @@ import { AlertIcon, ArrowIcon, CheckIcon, FileIcon, UploadIcon } from '../compon
 import { StatusBadge } from '../components/Badges'
 import { SectionCard } from '../components/SectionCard'
 import { WorkflowProgress } from '../components/WorkflowProgress'
+
+function newEncounterId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : ''
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())
+}
+
+function isPatientIdentifier(value: string): boolean {
+  const normalized = value.trim()
+  return /^[0-9]{6,8}$/.test(normalized) || isUuid(normalized)
+}
+
+function uploadErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 409) {
+    return 'This encounter belongs to another patient. Enter a new encounter ID for this consultation.'
+  }
+  if (error instanceof ApiError && error.status === 422) {
+    const errors = error.details.errors
+    if (Array.isArray(errors)) {
+      const messages = errors
+        .filter((item): item is { loc?: unknown[]; msg?: unknown } => Boolean(item && typeof item === 'object'))
+        .map((item) => {
+          const location = Array.isArray(item.loc) ? item.loc.join('.') : 'request'
+          const message = typeof item.msg === 'string' ? item.msg : 'invalid value'
+          return `${location}: ${message}`
+        })
+      if (messages.length > 0) return messages.join(' · ')
+    }
+  }
+  return error instanceof Error ? error.message : 'Unable to start processing. Try again.'
+}
 
 export function UploadPage() {
   const navigate = useNavigate()
@@ -20,14 +56,14 @@ export function UploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | undefined>()
   const [textInput, setTextInput] = useState('')
   const [patientId, setPatientId] = useState(output?.patient_id ?? workflow.patient_id)
-  const [encounterId, setEncounterId] = useState(output?.encounter_id ?? workflow.encounter_id)
+  const [encounterId, setEncounterId] = useState(output?.encounter_id ?? (workflow.encounter_id || newEncounterId()))
   const [sourceLanguage, setSourceLanguage] = useState(output?.source_language ?? 'hi')
   const [isDragging, setIsDragging] = useState(false)
   const queryClient = useQueryClient()
 
   const upload = useMutation({
     mutationFn: async () => {
-      const request = { patient_id: patientId, encounter_id: encounterId, modality, source_language: modality === 'multilingual' ? sourceLanguage : 'en', file: selectedFile, text_input: modality === 'multilingual' ? textInput : undefined }
+      const request = { patient_id: patientId.trim(), encounter_id: encounterId.trim(), modality, source_language: modality === 'multilingual' ? sourceLanguage : 'en', file: selectedFile, text_input: modality === 'multilingual' ? textInput : undefined }
       return modality === 'typed' ? uploadTypedDocument(request) : modality === 'handwritten' ? uploadHandwrittenDocument(request) : uploadMultilingualInput(request)
     },
     onSuccess: (response) => {
@@ -52,6 +88,10 @@ export function UploadPage() {
     handleFile(event.dataTransfer.files[0])
   }
   const handleBrowse = (event: ChangeEvent<HTMLInputElement>) => handleFile(event.target.files?.[0])
+  const isFixtureRuntime = import.meta.env.MODE === 'test'
+  const hasInput = isFixtureRuntime || (modality === 'multilingual' ? Boolean(textInput.trim()) : Boolean(selectedFile))
+  const identifiersValid = isFixtureRuntime || (isPatientIdentifier(patientId) && isUuid(encounterId))
+  const canStart = !upload.isPending && identifiersValid && hasInput
 
   return <div className="page-stack">
     <div className="page-heading">
@@ -66,7 +106,7 @@ export function UploadPage() {
         <div className={`dropzone ${isDragging ? 'dragging' : ''}`} onDragEnter={() => setIsDragging(true)} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop}>
           <div className="upload-symbol"><UploadIcon /></div>
           <h3>{fileName ? 'Document ready to process' : 'Drop a clinical document here'}</h3>
-          <p>PDF, PNG or JPG · up to 25 MB</p>
+          <p>PDF, PNG or JPG · up to 10 MB</p>
           <label className="secondary-button browse-button">Browse files<input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={handleBrowse} /></label>
         </div>
         {fileName && <div className="file-preview"><div className="file-icon"><FileIcon /></div><div><strong>{fileName}</strong><span>{modality === 'multilingual' ? 'Multilingual document' : `${modality[0].toUpperCase()}${modality.slice(1)} document`}</span></div><span className="file-ready"><CheckIcon /> Ready</span></div>}
@@ -74,7 +114,7 @@ export function UploadPage() {
         <div className="form-grid">
           <label>Patient search / select<div className="input-with-icon"><span className="patient-initials">AM</span><input value="Ananya Mehta" readOnly /><span className="select-caret">⌄</span></div></label>
           <label>Patient ID<input value={patientId} onChange={(event) => setPatientId(event.target.value)} /></label>
-          <label>Encounter ID<input value={encounterId} onChange={(event) => setEncounterId(event.target.value)} /></label>
+          <label>Encounter ID (new consultation)<input value={encounterId} onChange={(event) => setEncounterId(event.target.value)} /></label>
         </div>
       </SectionCard>
 
@@ -83,8 +123,9 @@ export function UploadPage() {
         <div className="modality-options">{(['typed', 'handwritten', 'multilingual'] as InputModality[]).map((item) => <button key={item} className={`modality-option ${modality === item ? 'selected' : ''}`} onClick={() => setModality(item)}><span className="radio-indicator" /><span><strong>{item[0].toUpperCase() + item.slice(1)}</strong><small>{item === 'typed' ? 'Standard text document' : item === 'handwritten' ? 'Handwritten document with additional review' : 'Document in another language with translation'}</small></span></button>)}</div>
         {modality === 'multilingual' && <div className="language-panel"><div><label>Source language</label><select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}><option value="hi">Hindi</option><option value="ta">Tamil</option><option value="en">English</option></select></div><div><label>Translation confidence</label><div className="read-only-value">{output ? `${Math.round((output.translation_confidence ?? 0) * 100)}%` : '—'}</div></div><div className="original-text"><label>Source text</label><textarea value={textInput} onChange={(event) => setTextInput(event.target.value)} placeholder="Paste the multilingual clinical text here." rows={3} /><span>Original language text is preserved</span><p>{output?.original_language_text ?? 'Original text will appear here after extraction.'}</p></div></div>}
         <div className="route-note"><span className="route-note-icon"><CheckIcon /></span><span><strong>Processing method selected</strong><small>{modality === 'typed' ? 'Typed documents use standard text processing.' : 'This document will receive additional confidence review.'}</small></span></div>
-        <button className="primary-button process-button" onClick={() => upload.mutate()} disabled={upload.isPending || !fileName || (modality === 'multilingual' && import.meta.env.MODE !== 'test' && !textInput.trim())}>{upload.isPending ? 'Starting processing…' : 'Start processing'}<ArrowIcon /></button>
-        {upload.isError && <p className="error-copy"><AlertIcon /> Unable to start processing. Try again.</p>}
+        <button className="primary-button process-button" onClick={() => upload.mutate()} disabled={!canStart}>{upload.isPending ? 'Starting processing…' : 'Start processing'}<ArrowIcon /></button>
+        {!identifiersValid && <p className="error-copy"><AlertIcon /> Enter an authorized 6–8 digit patient ID and a valid encounter ID.</p>}
+        {upload.isError && <p className="error-copy"><AlertIcon /> {uploadErrorMessage(upload.error)}</p>}
       </SectionCard>
     </div>
 

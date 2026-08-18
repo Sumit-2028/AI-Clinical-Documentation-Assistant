@@ -38,6 +38,7 @@ from .entity_dictionaries import (
     ENTITY_TYPE_ROUTE,
     ENTITY_TYPE_SYMPTOM,
     LAB_TERMS,
+    MEDICATION_TERMS,
     PROCEDURE_TERMS,
     ROUTE_TERMS,
     SYMPTOM_TERMS,
@@ -81,11 +82,13 @@ class HybridNERAdapter:
         scispacy_nlp=None,
         bc5cdr_nlp=None,
         load_models: bool = True,
+        strict_models: bool = False,
     ) -> None:
         # spaCy Language objects. None until first use (or injected).
         self._scispacy_nlp = scispacy_nlp
         self._bc5cdr_nlp = bc5cdr_nlp
         self._load_models = load_models
+        self._strict_models = strict_models
 
     # ----- public API -----
 
@@ -204,6 +207,7 @@ class HybridNERAdapter:
     def _extract_dictionary(self, text: str) -> list[EntitySpan]:
         spans: list[EntitySpan] = []
         for table, entity_type in (
+            (MEDICATION_TERMS, ENTITY_TYPE_MEDICATION),
             (SYMPTOM_TERMS, ENTITY_TYPE_SYMPTOM),
             (ALLERGY_TERMS, ENTITY_TYPE_ALLERGY),
             (PROCEDURE_TERMS, ENTITY_TYPE_PROCEDURE),
@@ -216,12 +220,22 @@ class HybridNERAdapter:
 
     def _get_scispacy(self):
         if self._scispacy_nlp is None and self._load_models:
-            self._scispacy_nlp = _load_spacy(self._SCISPACY_MODEL)
+            try:
+                self._scispacy_nlp = _load_spacy(self._SCISPACY_MODEL)
+            except NLPModelUnavailableError:
+                if self._strict_models:
+                    raise
+                self._load_models = False
         return self._scispacy_nlp
 
     def _get_bc5cdr(self):
         if self._bc5cdr_nlp is None and self._load_models:
-            self._bc5cdr_nlp = _load_spacy(self._BC5CDR_MODEL)
+            try:
+                self._bc5cdr_nlp = _load_spacy(self._BC5CDR_MODEL)
+            except NLPModelUnavailableError:
+                if self._strict_models:
+                    raise
+                self._load_models = False
         return self._bc5cdr_nlp
 
 

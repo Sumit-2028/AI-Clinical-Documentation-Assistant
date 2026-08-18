@@ -67,8 +67,11 @@ paths:
           in: query
           required: false
           schema:
-            type: string
-            format: uuid
+            oneOf:
+              - type: string
+                pattern: '^[0-9]{6,8}$'
+              - type: string
+                format: uuid
         - name: status
           in: query
           required: false
@@ -150,8 +153,11 @@ components:
       in: path
       required: true
       schema:
-        type: string
-        format: uuid
+        oneOf:
+          - type: string
+            pattern: '^[0-9]{6,8}$'
+          - type: string
+            format: uuid
     ConflictId:
       name: conflict_id
       in: path
@@ -175,8 +181,11 @@ components:
       required: [patient_id, encounter_id, source, clinical_events]
       properties:
         patient_id:
-          type: string
-          format: uuid
+          oneOf:
+            - type: string
+              pattern: '^[0-9]{6,8}$'
+            - type: string
+              format: uuid
         encounter_id:
           type: string
           format: uuid
@@ -188,6 +197,9 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/ClinicalEvent'
+        actor_id:
+          type: string
+          nullable: true
     WrittenMemoryEvent:
       type: object
       required: [event_id, concept_thread_id, trust_tier, thread_match_confidence, thread_match_method, is_new_thread]
@@ -266,8 +278,11 @@ components:
       required: [patient_id, encounter_id, query_concepts]
       properties:
         patient_id:
-          type: string
-          format: uuid
+          oneOf:
+            - type: string
+              pattern: '^[0-9]{6,8}$'
+            - type: string
+              format: uuid
         encounter_id:
           type: string
           format: uuid

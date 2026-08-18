@@ -22,7 +22,18 @@ Gateway authentication/RBAC
 pytest
 ```
 
-Deterministic AI adapters are the default, so tests do not need external API keys. The gateway mounts the Step 1–4 routes behind Bearer JWT authentication and RBAC. Standalone service apps are intended for isolated development tests and must not be exposed directly to an untrusted network.
+The gateway uses PostgreSQL-backed, request-scoped repositories by default
+(`CLINICAL_PIPELINE_PERSISTENCE=true`). Deterministic AI adapters are forced
+for tests, so CI does not need external API keys; production mode fails clearly
+when its configured provider or model is unavailable. The gateway mounts the
+Step 1–4 routes behind Bearer JWT authentication, RBAC, and patient assignment
+checks. Standalone service apps are intended for isolated development tests
+and must not be exposed directly to an untrusted network.
+
+Typed PDF uploads are parsed with `pypdf` when available (with a constrained
+valid-PDF text fallback for local smoke tests); uploaded PDF bytes are never
+decoded as ordinary UTF-8 text. Gemini and other provider keys remain backend
+only.
 
 Security controls and deployment limitations are documented in [docs/security.md](docs/security.md).
 
@@ -44,3 +55,6 @@ tests, and current backend limitations are documented in
 [docs/frontend-backend-integration.md](docs/frontend-backend-integration.md).
 The pre-change comparison is preserved in
 [docs/frontend-backend-integration-audit.md](docs/frontend-backend-integration-audit.md).
+
+The current implementation and verification status are in
+[docs/final-system-status.md](docs/final-system-status.md).

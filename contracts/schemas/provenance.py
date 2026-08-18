@@ -22,6 +22,7 @@ class ProvenanceRecord(BaseModel):
 
     source_document_id: UUID
     source_event_id: UUID
+    actor_id: str | None = Field(default=None, min_length=1, max_length=255)
     source_text_span: SourceTextSpan
     input_modality: InputModality
     source_language: str = Field(min_length=1, max_length=20)

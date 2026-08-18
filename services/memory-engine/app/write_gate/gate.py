@@ -31,6 +31,7 @@ class MemoryWriteGate:
         encounter_id: UUID,
         source: MemorySource,
         clinical_events: list[ClinicalEvent],
+        actor_id: str | None = None,
     ) -> MemoryWriteResponse:
         written: list[WrittenMemoryEvent] = []
         conflicts_detected: list[UUID] = []
@@ -69,7 +70,7 @@ class MemoryWriteGate:
                 trust_tier=tier,
                 current_trust_tier=tier,
                 reviewed_status=ReviewedStatus.UNREVIEWED,
-                provenance=build_provenance(clinical_event),
+                provenance=build_provenance(clinical_event, actor_id=actor_id),
                 created_at=datetime.now(timezone.utc),
             )
 

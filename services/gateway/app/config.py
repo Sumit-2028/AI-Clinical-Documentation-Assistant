@@ -43,6 +43,27 @@ class Settings(BaseSettings):
     rate_limit_auth_requests_per_minute: int = 20
     max_upload_size_bytes: int = 10 * 1024 * 1024
 
+    clinical_pipeline_persistence: bool = True
+
+    step1_ai_mode: str = "production"
+    step1_ai_provider: str = "configured-provider"
+    step1_ai_api_key: SecretStr | None = None
+    step1_ai_endpoint: str | None = None
+    step2_nlp_mode: str = "production"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-1.5-flash"
+    gemini_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_endpoint: str | None = None
+    bioclinicalbert_model_name: str = "emilyalsentzer/Bio_ClinicalBERT"
+    bioclinicalbert_model_path: str | None = None
+    step4_llm_mode: str = "gemini"
+    step4_llm_provider: str = "gemini"
+    step4_llm_api_key: SecretStr | None = None
+    step4_llm_endpoint: str | None = None
+    step4_llm_model: str = "configured-model"
+    step4_llm_timeout_seconds: float = 30.0
+    step4_llm_max_retries: int = 2
+
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: str) -> str:

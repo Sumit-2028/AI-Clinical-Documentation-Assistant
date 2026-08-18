@@ -89,7 +89,7 @@ class GeneratedDocument(BaseModel):
 class GenerateDocumentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    patient_id: UUID
+    patient_id: UUID | str
     encounter_id: UUID
     document_type: DocumentType
     current_consultation_events: list[ClinicalEvent] = Field(min_length=1)

@@ -123,9 +123,29 @@ class SqlAlchemyDocumentRepository:
         )
 
 
+class SessionScopedSqlAlchemyDocumentRepository:
+    """Durable Step 4 repository with short-lived database sessions."""
+
+    def __init__(self, session_factory) -> None:
+        self.session_factory = session_factory
+
+    def create(self, record: DocumentRecord) -> DocumentRecord:
+        with self.session_factory() as db:
+            return SqlAlchemyDocumentRepository(db).create(record)
+
+    def get(self, document_id: UUID) -> DocumentRecord | None:
+        with self.session_factory() as db:
+            return SqlAlchemyDocumentRepository(db).get(document_id)
+
+    def update(self, record: DocumentRecord) -> DocumentRecord:
+        with self.session_factory() as db:
+            return SqlAlchemyDocumentRepository(db).update(record)
+
+
 __all__ = [
     "DocumentRecord",
     "DocumentRepository",
     "InMemoryDocumentRepository",
     "SqlAlchemyDocumentRepository",
+    "SessionScopedSqlAlchemyDocumentRepository",
 ]

@@ -5,11 +5,18 @@ from uuid import UUID
 from contracts.schemas import Step1Output
 
 
+class EncounterPatientMismatchError(ValueError):
+    """Raised when an existing encounter belongs to another patient."""
+
+
 class DocumentRepository(Protocol):
     def save(self, output: Step1Output) -> Step1Output:
         ...
 
     def get(self, document_id: UUID) -> Step1Output | None:
+        ...
+
+    def validate_encounter(self, *, patient_id: UUID, encounter_id: UUID) -> None:
         ...
 
 
@@ -29,6 +36,9 @@ class InMemoryDocumentRepository:
         with self._lock:
             return self._documents.get(document_id)
 
+    def validate_encounter(self, *, patient_id: UUID, encounter_id: UUID) -> None:
+        return None
+
 
 class SqlAlchemyDocumentRepository:
     """Durable repository backed by the shared document/extraction tables."""
@@ -37,9 +47,26 @@ class SqlAlchemyDocumentRepository:
         self.db = db
 
     def save(self, output: Step1Output) -> Step1Output:
-        from database.models import DocumentRecord, ExtractionResult, ProcessingJob
+        from database.models import DocumentRecord, Encounter, ExtractionResult, ProcessingJob
 
         try:
+            encounter = self.db.query(Encounter).filter(Encounter.id == output.encounter_id).first()
+            if encounter is None:
+                self.db.add(
+                    Encounter(
+                        id=output.encounter_id,
+                        patient_id=output.patient_id,
+                        status="active",
+                    )
+                )
+                # There are intentionally no ORM relationships on the shared
+                # foundation models; flush the parent explicitly before the
+                # document row is inserted to satisfy the FK in PostgreSQL.
+                self.db.flush()
+            elif encounter.patient_id != output.patient_id:
+                raise EncounterPatientMismatchError(
+                    "Encounter does not belong to the requested patient."
+                )
             document = (
                 self.db.query(DocumentRecord)
                 .filter(DocumentRecord.id == output.document_id)
@@ -114,6 +141,15 @@ class SqlAlchemyDocumentRepository:
             self.db.rollback()
             raise
 
+    def validate_encounter(self, *, patient_id: UUID, encounter_id: UUID) -> None:
+        from database.models import Encounter
+
+        encounter = self.db.query(Encounter).filter(Encounter.id == encounter_id).first()
+        if encounter is not None and encounter.patient_id != patient_id:
+            raise EncounterPatientMismatchError(
+                "Encounter does not belong to the requested patient."
+            )
+
     def get(self, document_id: UUID) -> Step1Output | None:
         from database.models import ExtractionResult
 
@@ -126,3 +162,34 @@ class SqlAlchemyDocumentRepository:
         if extraction is None:
             return None
         return Step1Output.model_validate(extraction.field_payload)
+
+
+class SessionScopedSqlAlchemyDocumentRepository:
+    """Open a short-lived database session for each repository operation."""
+
+    def __init__(self, session_factory) -> None:
+        self.session_factory = session_factory
+
+    def save(self, output: Step1Output) -> Step1Output:
+        with self.session_factory() as db:
+            return SqlAlchemyDocumentRepository(db).save(output)
+
+    def get(self, document_id: UUID) -> Step1Output | None:
+        with self.session_factory() as db:
+            return SqlAlchemyDocumentRepository(db).get(document_id)
+
+    def validate_encounter(self, *, patient_id: UUID, encounter_id: UUID) -> None:
+        with self.session_factory() as db:
+            SqlAlchemyDocumentRepository(db).validate_encounter(
+                patient_id=patient_id,
+                encounter_id=encounter_id,
+            )
+
+
+__all__ = [
+    "DocumentRepository",
+    "EncounterPatientMismatchError",
+    "InMemoryDocumentRepository",
+    "SessionScopedSqlAlchemyDocumentRepository",
+    "SqlAlchemyDocumentRepository",
+]

@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic
 python-multipart
+pypdf
 sqlalchemy
 psycopg2-binary
 pytest

@@ -8,7 +8,7 @@ from contracts.schemas import Step1Output
 class MultilingualDocumentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    patient_id: UUID
+    patient_id: UUID | str
     encounter_id: UUID
     text_input: str = Field(min_length=1)
     source_language: str = Field(min_length=2, max_length=20)

@@ -249,12 +249,111 @@ class ProductionLLMGenerator:
         )
 
 
+class ProductionGeminiDocumentGenerator:
+    """Gemini REST adapter for physician-reviewable documentation drafts."""
+
+    generator_name = "gemini"
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model_name: str = "gemini-1.5-flash",
+        base_url: str = "https://generativelanguage.googleapis.com/v1beta",
+        endpoint: str | None = None,
+        timeout_seconds: float = 30.0,
+        max_retries: int = 2,
+        http_client: JSONHTTPClient | None = None,
+    ) -> None:
+        self.api_key = api_key
+        self.model_name = model_name
+        self.base_url = base_url.rstrip("/")
+        self.endpoint = endpoint
+        self.http_client = http_client or JSONHTTPClient(
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+        )
+
+    def generate(self, context, *, document_type, physician_instructions=None):
+        if not self.api_key:
+            raise GeneratorUnavailableError(
+                "Gemini documentation generation requires GEMINI_API_KEY."
+            )
+        endpoint = self.endpoint or (
+            f"{self.base_url}/models/{self.model_name}:generateContent"
+        )
+        response = self.http_client.post_json(
+            endpoint,
+            {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": (
+                                    "Return only JSON with a sections object. "
+                                    "Generate a draft for physician review. "
+                                    "Do not invent facts, do not resolve conflicts, "
+                                    "and keep unverified information explicitly uncertain.\n"
+                                    + _generation_prompt(
+                                        context,
+                                        document_type=document_type,
+                                        physician_instructions=physician_instructions,
+                                    )
+                                )
+                            }
+                        ],
+                    }
+                ],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0,
+                },
+            },
+            provider=self.model_name,
+            operation="document.generate",
+            headers={"x-goog-api-key": self.api_key},
+        )
+        content = _gemini_text(response)
+        try:
+            parsed = json.loads(content)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise AIProviderResponseError(
+                f"Gemini model '{self.model_name}' returned invalid document JSON."
+            ) from exc
+        if not isinstance(parsed, Mapping):
+            raise AIProviderResponseError("Gemini document response was not an object.")
+        sections = _sections_from_response({"sections": parsed.get("sections", parsed)})
+        return _draft_from_sections(
+            sections,
+            context,
+            document_type=document_type,
+            generator=self.generator_name,
+            response=parsed,
+        )
+
+
 def build_document_generator():
     """Select the deterministic or configured provider from environment."""
 
     mode = os.getenv("STEP4_LLM_MODE", "mock").strip().lower()
     if mode == "mock":
         return DeterministicMockGenerator()
+    # ``gemini`` is an explicit mode so a legacy OpenAI-compatible
+    # ``production`` configuration remains backwards compatible even if a
+    # process-wide provider setting was loaded from another environment.
+    if mode == "gemini":
+        return ProductionGeminiDocumentGenerator(
+            api_key=os.getenv("GEMINI_API_KEY"),
+            model_name=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+            base_url=os.getenv(
+                "GEMINI_API_URL",
+                "https://generativelanguage.googleapis.com/v1beta",
+            ),
+            endpoint=os.getenv("GEMINI_ENDPOINT"),
+            timeout_seconds=env_float("STEP4_LLM_TIMEOUT_SECONDS", 30.0),
+            max_retries=env_int("STEP4_LLM_MAX_RETRIES", 2),
+        )
     return ProductionLLMGenerator(
         api_key=os.getenv("STEP4_LLM_API_KEY"),
         endpoint=os.getenv("STEP4_LLM_ENDPOINT"),
@@ -262,6 +361,19 @@ def build_document_generator():
         timeout_seconds=env_float("STEP4_LLM_TIMEOUT_SECONDS", 30.0),
         max_retries=env_int("STEP4_LLM_MAX_RETRIES", 2),
     )
+
+
+def _gemini_text(response: Any) -> str:
+    candidates = response.get("candidates") if isinstance(response, Mapping) else None
+    if isinstance(candidates, list) and candidates:
+        content = candidates[0].get("content", {})
+        parts = content.get("parts", []) if isinstance(content, Mapping) else []
+        if parts and isinstance(parts[0], Mapping) and isinstance(parts[0].get("text"), str):
+            return parts[0]["text"]
+    direct = response.get("text") if isinstance(response, Mapping) else None
+    if isinstance(direct, str):
+        return direct
+    raise AIProviderResponseError("Gemini response did not contain document text.")
 
 
 def _generation_prompt(context, *, document_type: DocumentType, physician_instructions: str | None) -> str:

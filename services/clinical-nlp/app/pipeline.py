@@ -23,7 +23,11 @@ class ClinicalNLPPipeline:
             for entity in entities:
                 terminology = normalize_terminology(entity.text)
                 if entity.entity_type == "clinical_statement":
-                    terminology = field_terminology
+                    # A statement fallback represents the whole processed
+                    # field, so normalize that field instead of referencing a
+                    # non-existent variable (which previously crashed on
+                    # otherwise valid free-text input).
+                    terminology = normalize_field(expanded)
                 context = self.adapters.contextualization.contextualize(
                     expanded.processed_text,
                     entity.text,

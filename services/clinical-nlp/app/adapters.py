@@ -30,7 +30,7 @@ def build_adapter_bundle(mode: str | None = None) -> NLPAdapterBundle:
         )
 
     return NLPAdapterBundle(
-        ner=HybridNERAdapter(),
+            ner=HybridNERAdapter(strict_models=True),
         contextualization=ProductionGeminiContextualizationAdapter(
             api_key=os.getenv("GEMINI_API_KEY"),
             model_name=os.getenv("GEMINI_MODEL"),

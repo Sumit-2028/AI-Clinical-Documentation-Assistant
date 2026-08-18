@@ -67,8 +67,8 @@ require a Bearer token and the gateway pipeline-access dependency.
 | `POST /api/v1/step2/process` | `Step2ProcessRequest` | `ClinicalEventBatch` |
 | `GET /api/v1/step2/process/{document_id}` | UUID path | `ClinicalEventBatch` |
 | `POST /api/v1/step3/memory/events` | `MemoryWriteRequest` | `MemoryWriteResponse` |
-| `GET /api/v1/step3/memory/{patient_id}/events` | UUID path | `MemoryEventHistory` |
-| `GET /api/v1/step3/memory/{patient_id}/current-state` | UUID path | `CurrentPatientState` |
+| `GET /api/v1/step3/memory/{patient_id}/events` | numeric public ID or legacy UUID path | `MemoryEventHistory` |
+| `GET /api/v1/step3/memory/{patient_id}/current-state` | numeric public ID or legacy UUID path | `CurrentPatientState` |
 | `POST /api/v1/step3/memory/retrieve` | `MemoryRetrieveRequest` | `RetrievedContext` |
 | `GET /api/v1/step3/conflicts` | optional `patient_id`, `status`, `risk_level` | `ConflictRecord[]` |
 | `POST /api/v1/step3/conflicts/{conflict_id}/resolve` | `ResolveConflictRequest` | `ResolveConflictResponse` |
@@ -223,6 +223,10 @@ $env:LOG_LEVEL='INFO'
 pytest -q
 ```
 
+This document records the earlier frontend integration verification. The
+current full backend and final-system results are maintained in
+`docs/final-system-status.md`.
+
 Verified on 2026-08-18: 90 backend tests passed, 41 frontend tests passed,
 the frontend type check passed, and the Vite production build passed. `npm
 install` passed; npm reported two moderate audit vulnerabilities and no
@@ -230,18 +234,17 @@ automatic audit fix was applied.
 
 ## 12. Known limitations
 
-- The default `build_integrated_services()` path uses in-memory repositories.
-  PostgreSQL/SQLAlchemy adapters exist, but durable gateway persistence was not
-  proven by this integration run.
-- There is no user-to-patient assignment/access table. Patient IDs are filtered
-  by service operations, but complete physician-to-patient authorization and a
-  cross-patient isolation proof are not established.
-- The gateway OpenAPI contract file is empty even though generated FastAPI
-  routes exist; this is a contract publication gap.
+- The current gateway default is PostgreSQL-backed. This earlier integration
+  run did not prove that behavior; see the current final-system status.
+- Patient assignment authorization and numeric public patient IDs were added
+  after this earlier integration run.
+- The aggregate gateway OpenAPI contract is now an index of the service
+  contracts; individual service YAML files remain the detailed schema source.
 - There is no audit list/history, document draft GET, document history, review
   queue, or separate job-status endpoint. The frontend does not invent routes
   for them.
-- External OCR, VLM, NLP, and LLM provider calls were not exercised.
+- External OCR, VLM, NLP, Gemini, and LLM provider calls were not exercised in
+  this historical frontend run.
 - Offline Alembic SQL generation encounters the existing timestamp inspection
   behavior; migrations should be run and verified against real PostgreSQL.
 - Docker configuration was reviewed in the backend audit, but full container

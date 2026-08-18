@@ -1,0 +1,58 @@
+openapi: 3.0.3
+info:
+  title: AI Clinical Documentation Assistant Gateway
+  version: 1.0.0
+  description: >-
+    Aggregate gateway contract. Detailed request, response, and component
+    schemas remain in the service-specific contract files in this directory.
+servers:
+  - url: http://127.0.0.1:8000
+paths:
+  /api/v1/auth/register:
+    $ref: './auth.yaml#/paths/~1api~1v1~1auth~1register'
+  /api/v1/auth/login:
+    $ref: './auth.yaml#/paths/~1api~1v1~1auth~1login'
+  /api/v1/auth/refresh:
+    $ref: './auth.yaml#/paths/~1api~1v1~1auth~1refresh'
+  /api/v1/auth/me:
+    $ref: './auth.yaml#/paths/~1api~1v1~1auth~1me'
+  /api/v1/patients:
+    $ref: './patients.yaml#/paths/~1api~1v1~1patients'
+  /api/v1/patients/{patient_id}:
+    $ref: './patients.yaml#/paths/~1api~1v1~1patients~1{patient_id}'
+  /api/v1/patients/{patient_id}/assignments:
+    $ref: './patients.yaml#/paths/~1api~1v1~1patients~1{patient_id}~1assignments'
+  /api/v1/step1/documents/typed:
+    $ref: './step1-input.yaml#/paths/~1api~1v1~1step1~1documents~1typed'
+  /api/v1/step1/documents/handwritten:
+    $ref: './step1-input.yaml#/paths/~1api~1v1~1step1~1documents~1handwritten'
+  /api/v1/step1/documents/multilingual:
+    $ref: './step1-input.yaml#/paths/~1api~1v1~1step1~1documents~1multilingual'
+  /api/v1/step1/documents/{document_id}:
+    $ref: './step1-input.yaml#/paths/~1api~1v1~1step1~1documents~1{document_id}'
+  /api/v1/step1/documents/{document_id}/human-verify:
+    $ref: './step1-input.yaml#/paths/~1api~1v1~1step1~1documents~1{document_id}~1human-verify'
+  /api/v1/step2/process:
+    $ref: './step2-nlp.yaml#/paths/~1api~1v1~1step2~1process'
+  /api/v1/step2/process/{document_id}:
+    $ref: './step2-nlp.yaml#/paths/~1api~1v1~1step2~1process~1{document_id}'
+  /api/v1/step3/memory/events:
+    $ref: './step3-memory.yaml#/paths/~1api~1v1~1step3~1memory~1events'
+  /api/v1/step3/memory/{patient_id}/events:
+    $ref: './step3-memory.yaml#/paths/~1api~1v1~1step3~1memory~1{patient_id}~1events'
+  /api/v1/step3/memory/{patient_id}/current-state:
+    $ref: './step3-memory.yaml#/paths/~1api~1v1~1step3~1memory~1{patient_id}~1current-state'
+  /api/v1/step3/memory/retrieve:
+    $ref: './step3-memory.yaml#/paths/~1api~1v1~1step3~1memory~1retrieve'
+  /api/v1/step3/conflicts:
+    $ref: './step3-memory.yaml#/paths/~1api~1v1~1step3~1conflicts'
+  /api/v1/step3/conflicts/{conflict_id}/resolve:
+    $ref: './step3-memory.yaml#/paths/~1api~1v1~1step3~1conflicts~1{conflict_id}~1resolve'
+  /api/v1/step3/tier3/{event_id}/approve:
+    $ref: './step3-memory.yaml#/paths/~1api~1v1~1step3~1tier3~1{event_id}~1approve'
+  /api/v1/step3/tier3/{event_id}/reject:
+    $ref: './step3-memory.yaml#/paths/~1api~1v1~1step3~1tier3~1{event_id}~1reject'
+  /api/v1/step4/documents/generate:
+    $ref: './step4-docgen.yaml#/paths/~1api~1v1~1step4~1documents~1generate'
+  /api/v1/step4/documents/{document_id}/finalize:
+    $ref: './step4-docgen.yaml#/paths/~1api~1v1~1step4~1documents~1{document_id}~1finalize'

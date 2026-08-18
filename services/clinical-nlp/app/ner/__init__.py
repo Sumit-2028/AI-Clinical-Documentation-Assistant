@@ -9,11 +9,13 @@ from .base import (
     EntitySpan,
     NERAdapter,
 )
+from .bioclinicalbert import BioClinicalBERTNERAdapter
 from .hybrid import HybridNERAdapter, NLPModelUnavailableError, split_sentences
 from .mock import MockClinicalNERAdapter
 
 __all__ = [
     "EntitySpan",
+    "BioClinicalBERTNERAdapter",
     "EXTRACTION_SOURCE_BC5CDR",
     "EXTRACTION_SOURCE_DICTIONARY",
     "EXTRACTION_SOURCE_MOCK",

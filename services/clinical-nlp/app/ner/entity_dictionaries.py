@@ -90,6 +90,17 @@ ALLERGY_TERMS: tuple[tuple[str, str], ...] = (
 )
 
 
+# ---- Common medications used by the deterministic lexical boundary ----
+MEDICATION_TERMS: tuple[tuple[str, str], ...] = (
+    ("metformin", "metformin"),
+    ("insulin", "insulin"),
+    ("amlodipine", "amlodipine"),
+    ("warfarin", "warfarin"),
+    ("heparin", "heparin"),
+    ("aspirin", "aspirin"),
+)
+
+
 # ---- Procedures (~20) ----
 PROCEDURE_TERMS: tuple[tuple[str, str], ...] = (
     ("ecg", "electrocardiogram"),
@@ -191,6 +202,7 @@ __all__ = [
     "ENTITY_TYPE_ROUTE",
     "ENTITY_TYPE_SYMPTOM",
     "LAB_TERMS",
+    "MEDICATION_TERMS",
     "PROCEDURE_TERMS",
     "ROUTE_TERMS",
     "SYMPTOM_TERMS",

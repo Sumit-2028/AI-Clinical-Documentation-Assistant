@@ -107,6 +107,13 @@ class SqlAlchemyAuditLogger:
     ) -> AuditEvent:
         from database.models import AuditLog
 
+        actor_uuid = None
+        if actor_id:
+            try:
+                actor_uuid = UUID(str(actor_id))
+            except (TypeError, ValueError):
+                actor_uuid = None
+
         event = AuditEvent(
             audit_log_id=uuid4(),
             document_id=document_id,
@@ -118,6 +125,7 @@ class SqlAlchemyAuditLogger:
             self.db.add(
                 AuditLog(
                     id=event.audit_log_id,
+                    actor_user_id=actor_uuid,
                     action=action,
                     entity_type="step1_document",
                     entity_id=document_id,
@@ -132,3 +140,19 @@ class SqlAlchemyAuditLogger:
             self.db.rollback()
             raise
         return event
+
+
+class SessionScopedSqlAlchemyAuditLogger:
+    """Durable audit logger that does not retain a request session."""
+
+    def __init__(self, session_factory) -> None:
+        self.session_factory = session_factory
+
+    def record(self, document_id, action, *, actor_id=None, details=None):
+        with self.session_factory() as db:
+            return SqlAlchemyAuditLogger(db).record(
+                document_id,
+                action,
+                actor_id=actor_id,
+                details=details,
+            )

@@ -64,7 +64,7 @@ export function PatientsPage() {
       </SectionCard>
       <SectionCard title="Find patient" eyebrow="AUTHORIZED LOOKUP">
         <form onSubmit={lookup}>
-          <label className="auth-field"><span>Patient ID</span><input value={patientId} onChange={(event) => setPatientId(event.target.value)} placeholder="Backend-issued UUID" required /></label>
+          <label className="auth-field"><span>Patient ID</span><input value={patientId} onChange={(event) => setPatientId(event.target.value.replace(/\D/g, '').slice(0, 8))} inputMode="numeric" pattern="[0-9]{6,8}" placeholder="6–8 digit patient ID" required /></label>
           <button className="primary-button" type="submit" disabled={isLoading}>{isLoading ? 'Loading…' : 'Open patient'}</button>
         </form>
       </SectionCard>
