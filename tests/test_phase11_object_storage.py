@@ -1,3 +1,4 @@
+import base64
 from datetime import timezone
 from uuid import uuid4
 
@@ -392,3 +393,26 @@ def test_bucket_creation_is_off_by_default(monkeypatch):
     monkeypatch.delenv("S3_CREATE_BUCKET_IF_MISSING", raising=False)
 
     assert build_object_storage().create_bucket_if_missing is False
+
+
+def test_head_requests_the_stored_checksum():
+    # Without ChecksumMode the checksum is silently omitted from the response,
+    # so head() would always report an empty checksum.
+    client = FakeS3Client(
+        responses={
+            "head_object": {
+                "ContentType": "text/plain",
+                "ContentLength": 4,
+                "ChecksumSHA256": "RRUcu44iJfzvxr/TKHZ++izGVFZ2cQb4BR3ZhHbjMsg=",
+            }
+        }
+    )
+    storage, client, _ = make_s3(client=client)
+
+    stored = storage.head(key="k")
+
+    assert client.calls[0]["params"]["ChecksumMode"] == "ENABLED"
+    # The adapter exposes hex; S3 returns base64.
+    assert stored.checksum_sha256 == base64.b64decode(
+        "RRUcu44iJfzvxr/TKHZ++izGVFZ2cQb4BR3ZhHbjMsg="
+    ).hex()

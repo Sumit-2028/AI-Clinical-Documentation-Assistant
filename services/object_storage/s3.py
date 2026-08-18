@@ -163,9 +163,15 @@ class S3ObjectStorage:
         )
 
     def head(self, *, key: str) -> StoredObject:
+        # ChecksumMode is required for the stored checksum to be returned at
+        # all; without it the field is silently absent rather than an error.
         response = self._call(
             "head_object",
-            lambda: self.client.head_object(Bucket=self.bucket, Key=key),
+            lambda: self.client.head_object(
+                Bucket=self.bucket,
+                Key=key,
+                ChecksumMode="ENABLED",
+            ),
         ) or {}
         return StoredObject(
             key=key,
