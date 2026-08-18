@@ -13,6 +13,8 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 const isTestRuntime = import.meta.env.MODE === 'test'
+const isDevelopmentBypass = import.meta.env.DEV && import.meta.env.VITE_AUTH_BYPASS !== 'false'
+const isLocalAuthBypass = isTestRuntime || isDevelopmentBypass
 const testUser: AuthUser = {
   id: 'test-user',
   email: 'doctor@example.com',
@@ -22,12 +24,12 @@ const testUser: AuthUser = {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(isTestRuntime ? testUser : null)
-  const [isLoading, setIsLoading] = useState(!isTestRuntime)
+  const [user, setUser] = useState<AuthUser | null>(isLocalAuthBypass ? testUser : null)
+  const [isLoading, setIsLoading] = useState(!isLocalAuthBypass)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (isTestRuntime) return
+    if (isLocalAuthBypass) return
     let cancelled = false
     void (async () => {
       try {
@@ -52,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login: async (email, password) => {
       setError(null)
       try {
-        const currentUser = isTestRuntime ? testUser : await loginRequest({ email, password })
+        const currentUser = isLocalAuthBypass ? testUser : await loginRequest({ email, password })
         setUser(currentUser)
       } catch (reason) {
         const message = reason instanceof Error ? reason.message : 'Unable to sign in.'
@@ -62,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     logout: () => {
       logoutRequest()
-      setUser(isTestRuntime ? testUser : null)
+      setUser(isLocalAuthBypass ? testUser : null)
     },
   }), [error, isLoading, user])
 
@@ -72,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth(): AuthContextValue {
   const value = useContext(AuthContext)
   if (value) return value
-  if (isTestRuntime) {
+  if (isLocalAuthBypass) {
     return {
       user: testUser,
       isLoading: false,

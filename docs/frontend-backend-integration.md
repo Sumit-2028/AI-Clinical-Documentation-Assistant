@@ -96,6 +96,13 @@ clinical facts.
 The backend remains authoritative for expiration, token type, inactive users,
 roles, and permissions. Production requests do not use a fixture physician ID.
 
+For local UI development only, `frontend/.env.example` includes
+`VITE_AUTH_BYPASS=true`. The frontend applies this flag only when Vite is in
+development mode, starts with the demo physician identity, and skips the sign-in
+screen. Production builds still require real authentication. This flag does
+not disable gateway JWT checks; API operations still require a valid backend
+session unless a separate local backend authentication setup is used.
+
 ## 5. File upload and job lifecycle
 
 Typed and handwritten uploads use `FormData` with the actual selected `File`,
