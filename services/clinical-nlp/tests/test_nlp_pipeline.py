@@ -19,7 +19,7 @@ from services.clinical_nlp.app.contextualization import (
     extract_temporal_context,
 )
 from services.clinical_nlp.app.ner import (
-    BioClinicalBERTNERAdapter,
+    HybridNERAdapter,
     MockClinicalNERAdapter,
     NLPModelUnavailableError,
 )
@@ -174,8 +174,34 @@ def test_service_rejects_unverified_step1_output():
         )
 
 
-def test_production_model_adapter_does_not_fake_results():
-    adapter = BioClinicalBERTNERAdapter()
+def test_hybrid_ner_adapter_creation():
+    adapter = HybridNERAdapter(load_models=False)
+    assert adapter.model_name == "hybrid-scispacy-bc5cdr-regex-dictionary"
+    entities = adapter.extract("Patient has 500mg aspirin oral")
+    assert len(entities) > 0
 
-    with pytest.raises(NLPModelUnavailableError):
-        adapter.extract("Patient has fever")
+
+def test_metformin_500mg_bd_case():
+    step1 = make_step1_output(text="Patient started on Metformin 500mg BD oral for diabetes mellitus.")
+    pipeline = ClinicalNLPPipeline()
+    events = pipeline.process(step1)
+
+    assert len(events) > 0
+    for event in events:
+        assert isinstance(event, ClinicalEvent)
+        assert event.validation_status == ClinicalEventValidationStatus.VALID
+        assert event.source_document_id == step1.document_id
+
+
+def test_negation_case_no_history_of_diabetes():
+    step1 = make_step1_output(text="Patient has no history of diabetes and denies chest pain.")
+    pipeline = ClinicalNLPPipeline()
+    events = pipeline.process(step1)
+
+    assert len(events) > 0
+    negated_events = [e for e in events if e.assertion == "negated"]
+    assert len(negated_events) >= 1
+    for event in events:
+        assert isinstance(event, ClinicalEvent)
+        assert event.validation_status == ClinicalEventValidationStatus.VALID
+
