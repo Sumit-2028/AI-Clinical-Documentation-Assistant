@@ -8,6 +8,7 @@ from .foundation import (
     ExtractionResult,
     GeneratedDocumentRecord,
     Patient,
+    PatientAssignment,
     PatientMemoryRecord,
     ProcessingJob,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "ExtractionResult",
     "GeneratedDocumentRecord",
     "Patient",
+    "PatientAssignment",
     "PatientMemoryRecord",
     "ProcessingJob",
 ]

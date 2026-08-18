@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -43,8 +44,48 @@ class Patient(Base, TimestampMixin):
     __tablename__ = "patients"
 
     id = uuid_pk_column()
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        unique=True,
+        nullable=True,
+        index=True,
+    )
     external_patient_ref = Column(String(255), unique=True, nullable=True)
     display_name = Column(String(255), nullable=True)
+
+
+class PatientAssignment(Base, TimestampMixin):
+    """Persistent physician-to-patient access grant."""
+
+    __tablename__ = "patient_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "physician_id",
+            "patient_id",
+            name="uq_patient_assignments_physician_patient",
+        ),
+    )
+
+    id = uuid_pk_column()
+    physician_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    patient_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("patients.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assigned_by_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    status = Column(String(30), nullable=False, default="active", server_default="active")
 
 
 class Encounter(Base, TimestampMixin):

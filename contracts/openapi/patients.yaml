@@ -1,0 +1,98 @@
+openapi: 3.0.3
+info:
+  title: Clinical Memory System - Patient Identity and Access
+  version: 1.0.0
+paths:
+  /api/v1/patients:
+    post:
+      summary: Create and assign a patient record
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatientCreateRequest'
+      responses:
+        '200':
+          description: Created patient and authoritative ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientResponse'
+  /api/v1/patients/{patient_id}:
+    get:
+      summary: Read an authorized patient record
+      security:
+        - bearerAuth: []
+      parameters:
+        - {$ref: '#/components/parameters/PatientId'}
+      responses:
+        '200':
+          description: Patient record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientResponse'
+        '403': {description: Patient is not assigned to the caller}
+        '404': {description: Patient not found}
+  /api/v1/patients/{patient_id}/assignments:
+    post:
+      summary: Assign a patient to a physician (admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - {$ref: '#/components/parameters/PatientId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatientAssignmentRequest'
+      responses:
+        '200':
+          description: Active assignment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientAssignmentResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    PatientId:
+      name: patient_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    PatientCreateRequest:
+      type: object
+      required: [display_name]
+      additionalProperties: false
+      properties:
+        display_name: {type: string, minLength: 2, maxLength: 255}
+    PatientAssignmentRequest:
+      type: object
+      required: [physician_id]
+      additionalProperties: false
+      properties:
+        physician_id: {type: string, format: uuid}
+    PatientResponse:
+      type: object
+      required: [patient_id]
+      properties:
+        patient_id: {type: string, format: uuid}
+        display_name: {type: string, nullable: true}
+        user_id: {type: string, format: uuid, nullable: true}
+    PatientAssignmentResponse:
+      type: object
+      required: [patient_id, physician_id, status]
+      properties:
+        patient_id: {type: string, format: uuid}
+        physician_id: {type: string, format: uuid}
+        status: {type: string}

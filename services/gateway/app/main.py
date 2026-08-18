@@ -12,6 +12,7 @@ from .exceptions import register_exception_handlers
 from .integration import IntegratedBackendServices, build_integrated_services
 from .logging import redact_request_path, setup_logging
 from .rate_limit import InMemoryRateLimitMiddleware
+from .patients.router import router as patients_router
 from services.clinical_nlp.app.router import router as step2_router
 from services.doc_generation.app.router import router as step4_router
 from services.input_processing.app.router import router as step1_router
@@ -93,6 +94,10 @@ def create_app(
 
     app.include_router(
         auth_router,
+        prefix="/api/v1",
+    )
+    app.include_router(
+        patients_router,
         prefix="/api/v1",
     )
 

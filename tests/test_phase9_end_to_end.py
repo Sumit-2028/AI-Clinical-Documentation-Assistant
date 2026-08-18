@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from contracts.schemas import DocumentStatus, DocumentType, MemorySource
+from database.models import Patient, PatientAssignment
 from services.gateway.app.auth.model import User
 from services.gateway.app.auth.security import hash_password
 from services.gateway.app.database import get_db
@@ -19,29 +20,37 @@ from services.doc_generation.app.repository import (
 
 
 class FakeQuery:
-    def __init__(self, users):
-        self.users = list(users)
+    def __init__(self, values):
+        self.values = list(values)
 
     def filter(self, expression):
         field_name = expression.left.name
         expected_value = expression.right.value
-        self.users = [
-            user
-            for user in self.users
-            if getattr(user, field_name) == expected_value
+        self.values = [
+            value
+            for value in self.values
+            if getattr(value, field_name) == expected_value
         ]
         return self
 
     def first(self):
-        return self.users[0] if self.users else None
+        return self.values[0] if self.values else None
 
 
 class FakeSession:
-    def __init__(self, users):
+    def __init__(self, users, patients=None, assignments=None):
         self.users = users
+        self.patients = patients or []
+        self.assignments = assignments or []
 
     def query(self, model):
-        return FakeQuery(self.users)
+        if model is User:
+            return FakeQuery(self.users)
+        if model is Patient:
+            return FakeQuery(self.patients)
+        if model is PatientAssignment:
+            return FakeQuery(self.assignments)
+        raise AssertionError(f"Unexpected model queried: {model}")
 
 
 def make_user(*, email: str, role: str = "physician") -> User:
@@ -59,8 +68,9 @@ def make_client():
     physician = make_user(email="doctor@example.com")
     reviewer = make_user(email="reviewer@example.com", role="reviewer")
     app = create_app()
-    app.dependency_overrides[get_db] = lambda: FakeSession([physician, reviewer])
-    return TestClient(app), app, physician, reviewer
+    db = FakeSession([physician, reviewer])
+    app.dependency_overrides[get_db] = lambda: db
+    return TestClient(app), app, physician, reviewer, db
 
 
 def login(client, email: str):
@@ -73,10 +83,12 @@ def login(client, email: str):
 
 
 def test_complete_authenticated_pipeline_reaches_the_single_memory_write_gate():
-    client, app, physician, _ = make_client()
+    client, app, physician, _, db = make_client()
     headers = login(client, physician.email)
     patient_id = uuid4()
     encounter_id = uuid4()
+    db.patients.append(Patient(id=patient_id, display_name="Pipeline Patient"))
+    db.assignments.append(PatientAssignment(patient_id=patient_id, physician_id=physician.id, status="active"))
 
     assert client.get("/api/v1/auth/me").status_code == 401
     unauthorized = client.post(
@@ -197,12 +209,17 @@ def test_complete_authenticated_pipeline_reaches_the_single_memory_write_gate():
 
 
 def test_gateway_authorization_patient_isolation_and_conflict_behavior():
-    client, _, physician, reviewer = make_client()
+    client, _, physician, reviewer, db = make_client()
     physician_headers = login(client, physician.email)
     reviewer_headers = login(client, reviewer.email)
     patient_a = uuid4()
     patient_b = uuid4()
     encounter_id = uuid4()
+    db.patients.extend([
+        Patient(id=patient_a, display_name="Patient A"),
+        Patient(id=patient_b, display_name="Patient B"),
+    ])
+    db.assignments.append(PatientAssignment(patient_id=patient_a, physician_id=physician.id, status="active"))
 
     denied_write = client.post(
         "/api/v1/step1/documents/typed",
@@ -272,23 +289,11 @@ def test_gateway_authorization_patient_isolation_and_conflict_behavior():
             "query_concepts": ["hypertension"],
         },
     )
-    assert isolated.status_code == 200
-    assert isolated.json() == {
-        "verified_context": {
-            "conditions": [],
-            "medications": [],
-            "allergies": [],
-            "procedures": [],
-            "lab_trends": [],
-            "significant_events": [],
-        },
-        "unverified_information": [],
-        "conflicts": [],
-    }
+    assert isolated.status_code == 403
 
     conflicts = client.get(
         "/api/v1/step3/conflicts",
-        headers=reviewer_headers,
+        headers=physician_headers,
         params={"patient_id": str(patient_a), "status": "unresolved"},
     )
     assert conflicts.status_code == 200
@@ -296,9 +301,10 @@ def test_gateway_authorization_patient_isolation_and_conflict_behavior():
 
 
 def test_gateway_mounts_all_existing_pipeline_contract_paths():
-    client, app, _, _ = make_client()
+    client, app, _, _, _ = make_client()
     expected_paths = {
         "/api/v1/auth/login",
+        "/api/v1/auth/register",
         "/api/v1/auth/refresh",
         "/api/v1/auth/me",
         "/api/v1/step1/documents/typed",
