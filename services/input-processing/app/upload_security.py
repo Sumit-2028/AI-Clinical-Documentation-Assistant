@@ -28,6 +28,27 @@ MIME_EXTENSIONS = {
     "image/tiff": {".tif", ".tiff"},
 }
 
+# Leading-byte signatures per binary type, as (offset, expected bytes).  A type
+# passes when any of its signature groups matches in full.  The declared MIME
+# type is caller-supplied and therefore untrusted; these checks are what stop a
+# renamed executable from being stored and later served back.
+SIGNATURE_SAMPLE_BYTES = 8192
+PDF_SIGNATURE_WINDOW = 1024
+CONTENT_SIGNATURES: dict[str, tuple[tuple[tuple[int, bytes], ...], ...]] = {
+    "image/png": (((0, b"\x89PNG\r\n\x1a\n"),),),
+    "image/jpeg": (((0, b"\xff\xd8\xff"),),),
+    "image/webp": (((0, b"RIFF"), (8, b"WEBP")),),
+    "image/tiff": (
+        ((0, b"II*\x00"),),
+        ((0, b"MM\x00*"),),
+        ((0, b"II+\x00"),),  # BigTIFF
+        ((0, b"MM\x00+"),),
+    ),
+}
+# Control characters that never appear in legitimate plain text.
+_ALLOWED_TEXT_CONTROLS = frozenset({0x09, 0x0A, 0x0D, 0x0C})
+_UTF8_BOM = b"\xef\xbb\xbf"
+
 
 class UploadSecurityError(ValueError):
     def __init__(self, message: str, *, status_code: int) -> None:
@@ -106,6 +127,81 @@ def validate_upload_metadata(
     return clean_filename, normalized_type
 
 
+def magic_byte_check_enabled() -> bool:
+    raw = os.getenv("UPLOAD_MAGIC_BYTE_CHECK")
+    if raw is None:
+        return True
+    return raw.strip().casefold() not in {"0", "false", "no", "off"}
+
+
+def _matches_signature(head: bytes, groups) -> bool:
+    return any(
+        all(head[offset : offset + len(expected)] == expected for offset, expected in group)
+        for group in groups
+    )
+
+
+def sniff_matches(head: bytes, declared_type: str) -> bool:
+    """Whether the leading bytes are consistent with the declared type."""
+
+    if declared_type == "application/pdf":
+        # The PDF spec tolerates leading bytes before the header, and real
+        # scanner output sometimes has them, so search a short window rather
+        # than requiring offset 0.  This is a deliberate, documented relaxation.
+        return b"%PDF-" in head[:PDF_SIGNATURE_WINDOW]
+
+    groups = CONTENT_SIGNATURES.get(declared_type)
+    if groups is None:
+        return True
+    return _matches_signature(head, groups)
+
+
+def looks_like_text(head: bytes) -> bool:
+    """Negative validation for text/plain, which has no magic bytes."""
+
+    if b"\x00" in head:
+        return False
+
+    # A binary format smuggled in as text.
+    if any(sniff_matches(head, mime) for mime in CONTENT_SIGNATURES):
+        return False
+    if b"%PDF-" in head[:PDF_SIGNATURE_WINDOW]:
+        return False
+
+    sample = head[len(_UTF8_BOM) :] if head.startswith(_UTF8_BOM) else head
+    if any(
+        byte < 0x20 and byte not in _ALLOWED_TEXT_CONTROLS for byte in sample
+    ):
+        return False
+
+    try:
+        sample.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # Tolerate a multi-byte sequence clipped by the sample boundary.
+        if len(sample) < SIGNATURE_SAMPLE_BYTES or exc.start < len(sample) - 3:
+            return False
+    return True
+
+
+def validate_content_signature(content: bytes, declared_type: str) -> None:
+    if not content:
+        return
+
+    head = content[:SIGNATURE_SAMPLE_BYTES]
+    if declared_type == "text/plain":
+        matched = looks_like_text(head)
+    else:
+        matched = sniff_matches(head, declared_type)
+
+    if not matched:
+        # Deliberately the same message the MIME allowlist uses, so a probing
+        # caller cannot learn which check rejected the upload.
+        raise UploadSecurityError(
+            "Unsupported upload type.",
+            status_code=415,
+        )
+
+
 async def read_validated_upload(upload: UploadFile) -> ValidatedUpload:
     filename, content_type = validate_upload_metadata(
         filename=upload.filename,
@@ -134,20 +230,29 @@ async def read_validated_upload(upload: UploadFile) -> ValidatedUpload:
             )
         chunks.append(chunk)
 
+    content = b"".join(chunks)
+    if magic_byte_check_enabled():
+        validate_content_signature(content, content_type)
+
     return ValidatedUpload(
-        content=b"".join(chunks),
+        content=content,
         filename=filename,
         content_type=content_type,
     )
 
 
 __all__ = [
+    "CONTENT_SIGNATURES",
     "DEFAULT_ALLOWED_MIME_TYPES",
     "DEFAULT_MAX_UPLOAD_SIZE_BYTES",
     "UploadSecurityError",
     "ValidatedUpload",
     "configured_max_upload_size",
     "configured_mime_types",
+    "looks_like_text",
+    "magic_byte_check_enabled",
     "read_validated_upload",
+    "sniff_matches",
+    "validate_content_signature",
     "validate_upload_metadata",
 ]

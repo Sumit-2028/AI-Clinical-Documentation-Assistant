@@ -42,7 +42,10 @@ def test_handwritten_endpoint_and_human_verification_endpoint():
     response = client.post(
         "/api/v1/step1/documents/handwritten",
         data={"patient_id": str(uuid4()), "encounter_id": str(uuid4())},
-        files={"file": ("note.png", b"Patient has penicillin allergy", "image/png")},
+        # Declared as text so the deterministic OCR mock, which decodes the
+        # upload as UTF-8, still yields extractable fields.  Content signature
+        # validation rejects text bytes labelled as an image.
+        files={"file": ("note.txt", b"Patient has penicillin allergy", "text/plain")},
     )
 
     assert response.status_code == 200
