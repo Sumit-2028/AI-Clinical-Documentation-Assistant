@@ -44,7 +44,7 @@ async function uploadDocument(request: UploadDocumentRequest): Promise<UploadDoc
 }
 
 function toUploadResponse(output: Step1Output): UploadDocumentResponse {
-  return { document_id: output.document_id, processing_status: output.processing_status, step1_output: output }
+  return { document_id: output.document_id, job_id: output.job_id, processing_status: output.processing_status, step1_output: output }
 }
 
 export async function getStep1Document(documentId: string): Promise<Step1Output> {

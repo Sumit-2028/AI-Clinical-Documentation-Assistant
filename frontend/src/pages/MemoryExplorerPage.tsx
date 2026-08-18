@@ -5,6 +5,7 @@ import type { Conflict, RetrievedContext } from '../contracts/retrievedContext'
 import { useApproveTier3, useConflictList, useMemoryEvents, useRejectTier3, useResolveConflict, useRetrievedContext } from '../hooks/useMemory'
 import { useWorkflow, type WorkflowNavigationState } from '../context/WorkflowContext'
 import { useAuth } from '../context/AuthContext'
+import { usePatient } from '../hooks/usePatients'
 import { TrustTierBadge } from '../components/Badges'
 import { MemoryFactCard } from '../components/MemoryFactCard'
 import { MemoryProvenanceDrawer } from '../components/MemoryProvenanceDrawer'
@@ -41,6 +42,7 @@ export function MemoryExplorerPage({ initialView = 'memory' }: { initialView?: M
   const [conversation, setConversation] = useState<string[]>([])
   const [patientId, setPatientId] = useState(() => searchParams.get('patient_id') ?? routeWorkflow?.patient_id ?? workflow.patient_id)
   const [encounterId, setEncounterId] = useState(() => searchParams.get('encounter_id') ?? routeWorkflow?.encounter_id ?? workflow.encounter_id)
+  const { data: patient } = usePatient(patientId)
   const [selectedFact, setSelectedFact] = useState<MemoryFact | null>(null)
   const [approvedIds, setApprovedIds] = useState<string[]>([])
   const [rejectedIds, setRejectedIds] = useState<string[]>([])
@@ -54,8 +56,21 @@ export function MemoryExplorerPage({ initialView = 'memory' }: { initialView?: M
   const displayedContext = applyTierActions(context, approvedIds, rejectedIds)
 
   useEffect(() => {
-    if (routeWorkflow && (routeWorkflow.patient_id !== workflow.patient_id || routeWorkflow.encounter_id !== workflow.encounter_id || routeWorkflow.document_id !== workflow.document_id)) setWorkflow(routeWorkflow)
+    if (!routeWorkflow) return
+    setPatientId(routeWorkflow.patient_id)
+    setEncounterId(routeWorkflow.encounter_id)
+    if (routeWorkflow.patient_id !== workflow.patient_id || routeWorkflow.encounter_id !== workflow.encounter_id || routeWorkflow.document_id !== workflow.document_id) setWorkflow(routeWorkflow)
   }, [location.state])
+
+  const updatePatientId = (value: string) => {
+    setPatientId(value)
+    setWorkflow({ patient_id: value })
+  }
+
+  const updateEncounterId = (value: string) => {
+    setEncounterId(value)
+    setWorkflow({ encounter_id: value })
+  }
 
   const submitQuery = (question: string) => {
     const trimmed = question.trim()
@@ -72,9 +87,9 @@ export function MemoryExplorerPage({ initialView = 'memory' }: { initialView?: M
   const resolveConflict = (conflictId: string, action: 'confirm_event_a' | 'confirm_event_b' | 'keep_unresolved') => { if (!physicianId) return; setResolvedIds((ids) => ids.includes(conflictId) ? ids : [...ids, conflictId]); resolve.mutate({ conflictId, request: { resolution_action: action, physician_id: physicianId } }, { onError: () => setResolvedIds((ids) => ids.filter((id) => id !== conflictId)) }) }
 
   return <div className="page-stack">
-    <PatientMemoryHeader patientId={patientId} encounterId={encounterId} onPatientIdChange={setPatientId} onEncounterIdChange={setEncounterId} />
+    <PatientMemoryHeader patient={patient} patientId={patientId} encounterId={encounterId} onPatientIdChange={updatePatientId} onEncounterIdChange={updateEncounterId} />
     <MemoryTabs view={view} onChange={setView} />
-    {view === 'memory' && <><ClinicalQueryPanel query={queryInput} setQuery={setQueryInput} onSubmit={submitQuery} conversation={conversation} patientId={patientId} encounterId={encounterId} /><MemoryWorkspace context={displayedContext} timeline={timeline} conflicts={context?.conflicts ?? conflicts} question={submittedQuestion} hasSearched={hasSearched} isLoading={isLoading} patientId={patientId} encounterId={encounterId} onFactClick={setSelectedFact} onApprove={approveFact} onReject={rejectFact} /></>}
+    {view === 'memory' && <><ClinicalQueryPanel query={queryInput} setQuery={setQueryInput} onSubmit={submitQuery} conversation={conversation} patientName={patient?.display_name || 'Patient record'} patientId={patientId} encounterId={encounterId} /><MemoryWorkspace context={displayedContext} timeline={timeline} conflicts={context?.conflicts ?? conflicts} question={submittedQuestion} hasSearched={hasSearched} isLoading={isLoading} patientId={patientId} encounterId={encounterId} onFactClick={setSelectedFact} onApprove={approveFact} onReject={rejectFact} /></>}
     {view === 'timeline' && <TimelineView events={timeline} onFactClick={setSelectedFact} />}
     {view === 'verified' && <VerifiedInformationTab context={displayedContext} onFactClick={setSelectedFact} />}
     {view === 'unverified' && <UnverifiedInformationTab context={displayedContext} onFactClick={setSelectedFact} onApprove={approveFact} onReject={rejectFact} />}
@@ -83,8 +98,10 @@ export function MemoryExplorerPage({ initialView = 'memory' }: { initialView?: M
   </div>
 }
 
-function PatientMemoryHeader({ patientId, encounterId, onPatientIdChange, onEncounterIdChange }: { patientId: string; encounterId: string; onPatientIdChange: (value: string) => void; onEncounterIdChange: (value: string) => void }) {
-  return <div className="memory-header"><div className="patient-profile-large"><div className="patient-avatar-large">AM</div><div><p className="eyebrow">PATIENT MEMORY</p><h1>Ananya Mehta</h1><p>32 years · Female · <span className="patient-status"><span /> Active patient</span></p></div></div><div className="patient-identifiers"><label>Patient ID<input value={patientId} onChange={(event) => onPatientIdChange(event.target.value)} /></label><label>Encounter ID<input value={encounterId} onChange={(event) => onEncounterIdChange(event.target.value)} /></label></div></div>
+function PatientMemoryHeader({ patient, patientId, encounterId, onPatientIdChange, onEncounterIdChange }: { patient?: { display_name?: string | null }; patientId: string; encounterId: string; onPatientIdChange: (value: string) => void; onEncounterIdChange: (value: string) => void }) {
+  const displayName = patient?.display_name || 'Patient record'
+  const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'P'
+  return <div className="memory-header"><div className="patient-profile-large"><div className="patient-avatar-large">{initials}</div><div><p className="eyebrow">PATIENT MEMORY</p><h1>{displayName}</h1><p>Backend-authorized patient · <span className="patient-status"><span /> Active patient</span></p></div></div><div className="patient-identifiers"><label>Patient ID<input value={patientId} onChange={(event) => onPatientIdChange(event.target.value)} /></label><label>Encounter ID<input value={encounterId} onChange={(event) => onEncounterIdChange(event.target.value)} /></label></div></div>
 }
 
 function MemoryTabs({ view, onChange }: { view: MemoryView; onChange: (view: MemoryView) => void }) {
@@ -94,9 +111,9 @@ function MemoryTabs({ view, onChange }: { view: MemoryView; onChange: (view: Mem
   return <div className="memory-nav" role="tablist" aria-label="Patient memory views">{tabs.map(({ id, label, icon: Icon }) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'active' : ''} onClick={() => onChange(id)}><Icon /> {label}</button>)}</div>
 }
 
-function ClinicalQueryPanel({ query, setQuery, onSubmit, conversation, patientId, encounterId }: { query: string; setQuery: (value: string) => void; onSubmit: (value: string) => void; conversation: string[]; patientId: string; encounterId: string }) {
+function ClinicalQueryPanel({ query, setQuery, onSubmit, conversation, patientName, patientId, encounterId }: { query: string; setQuery: (value: string) => void; onSubmit: (value: string) => void; conversation: string[]; patientName: string; patientId: string; encounterId: string }) {
   const suggestions = ['Current medications', 'Recent medication changes', 'Allergy history', 'Recent hypertension history', 'Relevant procedures']
-  return <SectionCard title="Ask about this patient's history" eyebrow="CLINICAL SEARCH" className="retrieval-card conversational-card"><p className="memory-search-subtitle">Search the patient's clinical history using a natural-language question.</p><form onSubmit={(event) => { event.preventDefault(); onSubmit(query) }}><div className="conversation-input-wrap"><SearchIcon /><textarea aria-label="Ask about this patient's history" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onSubmit(query) } }} placeholder="What would you like to know about this patient's history?" rows={3} /><button className="primary-button" type="submit"><SearchIcon /> Ask</button></div></form><div className="query-context"><span>Ananya Mehta · Current consultation</span><span className="query-context-note">Patient <strong>{patientId}</strong> · Encounter <strong>{encounterId}</strong></span></div><div className="suggested-questions"><span>Suggested questions</span>{suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => onSubmit(suggestion)}>{suggestion}</button>)}</div>{conversation.length > 0 && <div className="conversation-history">{conversation.map((question, index) => <div className="conversation-turn" key={`${question}-${index}`}><span className="conversation-speaker physician">YOU</span><p>{question}</p></div>)}</div>}</SectionCard>
+  return <SectionCard title="Ask about this patient's history" eyebrow="CLINICAL SEARCH" className="retrieval-card conversational-card"><p className="memory-search-subtitle">Search the patient's clinical history using a natural-language question.</p><form onSubmit={(event) => { event.preventDefault(); onSubmit(query) }}><div className="conversation-input-wrap"><SearchIcon /><textarea aria-label="Ask about this patient's history" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onSubmit(query) } }} placeholder="What would you like to know about this patient's history?" rows={3} /><button className="primary-button" type="submit"><SearchIcon /> Ask</button></div></form><div className="query-context"><span>{patientName} · Current consultation</span><span className="query-context-note">Patient <strong>{patientId}</strong> · Encounter <strong>{encounterId}</strong></span></div><div className="suggested-questions"><span>Suggested questions</span>{suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => onSubmit(suggestion)}>{suggestion}</button>)}</div>{conversation.length > 0 && <div className="conversation-history">{conversation.map((question, index) => <div className="conversation-turn" key={`${question}-${index}`}><span className="conversation-speaker physician">YOU</span><p>{question}</p></div>)}</div>}</SectionCard>
 }
 
 function MemoryWorkspace({ context, timeline, conflicts, question, hasSearched, isLoading, patientId, encounterId, onFactClick, onApprove, onReject }: { context?: RetrievedContext; timeline: MemoryFact[]; conflicts: Conflict[]; question: string; hasSearched: boolean; isLoading: boolean; patientId: string; encounterId: string; onFactClick: (fact: MemoryFact) => void; onApprove: (fact: MemoryFact) => void; onReject: (fact: MemoryFact) => void }) {

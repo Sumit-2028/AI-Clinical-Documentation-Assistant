@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { uploadHandwrittenDocument, uploadMultilingualInput, uploadTypedDocument } from '../api'
 import type { InputModality, ProcessingStatus } from '../contracts/common'
 import type { Step1Output } from '../contracts/step1Output'
+import { usePatients } from '../hooks/usePatients'
 import { useStep1Output } from '../hooks/useStep1'
 import { useWorkflow } from '../context/WorkflowContext'
 import { AlertIcon, ArrowIcon, CheckIcon, FileIcon, UploadIcon } from '../components/icons'
@@ -13,8 +14,9 @@ import { WorkflowProgress } from '../components/WorkflowProgress'
 
 export function UploadPage() {
   const navigate = useNavigate()
-  const { workflow, beginProcessing } = useWorkflow()
+  const { workflow, beginProcessing, setWorkflow } = useWorkflow()
   const { data: output } = useStep1Output(workflow.document_id)
+  const { data: patients = [], isLoading: patientsLoading, isError: patientsError } = usePatients(workflow.patient_id)
   const [modality, setModality] = useState<InputModality>('multilingual')
   const [fileName, setFileName] = useState(output?.source_document ?? '')
   const [selectedFile, setSelectedFile] = useState<File | undefined>()
@@ -33,7 +35,12 @@ export function UploadPage() {
     onSuccess: (response) => {
       void queryClient.invalidateQueries({ queryKey: ['step1-output'] })
       if (response.step1_output) queryClient.setQueryData(['step1-output', response.document_id], response.step1_output)
-      const nextWorkflow = beginProcessing({ patient_id: patientId, encounter_id: encounterId, document_id: response.document_id, processing_status: response.processing_status })
+      const nextWorkflow = beginProcessing({
+        patient_id: response.step1_output?.patient_id ?? patientId,
+        encounter_id: response.step1_output?.encounter_id ?? encounterId,
+        document_id: response.document_id,
+        processing_status: response.processing_status,
+      })
       navigate('/clinical-nlp', { state: { workflow: nextWorkflow } })
     },
   })
@@ -42,6 +49,17 @@ export function UploadPage() {
   useEffect(() => {
     if (output && !fileName) setFileName(output.source_document)
   }, [output, fileName])
+
+  useEffect(() => {
+    if (!patientId && output?.patient_id) {
+      setPatientId(output.patient_id)
+      setWorkflow({ patient_id: output.patient_id })
+    }
+    if (!encounterId && output?.encounter_id) {
+      setEncounterId(output.encounter_id)
+      setWorkflow({ encounter_id: output.encounter_id })
+    }
+  }, [output, patientId, encounterId, setWorkflow])
 
   const handleFile = (file: File | undefined) => {
     if (file) { setSelectedFile(file); setFileName(file.name) }
@@ -52,8 +70,9 @@ export function UploadPage() {
     handleFile(event.dataTransfer.files[0])
   }
   const handleBrowse = (event: ChangeEvent<HTMLInputElement>) => handleFile(event.target.files?.[0])
+  const selectedPatient = patients.find((patient) => patient.patient_id === patientId)
 
-  return <div className="page-stack">
+  return <div className="page-stack upload-page">
     <div className="page-heading">
       <div><p className="eyebrow">INPUT PROCESSING</p><h1>Upload &amp; process</h1><p className="page-subtitle">Bring clinical information into the patient record with a confidence check.</p></div>
       <div className="heading-meta"><span className="live-dot" /> Processing system ready</div>
@@ -61,35 +80,43 @@ export function UploadPage() {
 
     <WorkflowProgress />
 
-    <div className="upload-grid">
-      <SectionCard title="Source document" eyebrow="01 / INPUT" className="source-card">
+    <div className="upload-grid upload-workspace">
+      <SectionCard title="Source document" eyebrow="01 / INPUT" className="source-card upload-source-card">
         <div className={`dropzone ${isDragging ? 'dragging' : ''}`} onDragEnter={() => setIsDragging(true)} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop}>
           <div className="upload-symbol"><UploadIcon /></div>
           <h3>{fileName ? 'Document ready to process' : 'Drop a clinical document here'}</h3>
           <p>PDF, PNG or JPG · up to 25 MB</p>
           <label className="secondary-button browse-button">Browse files<input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={handleBrowse} /></label>
         </div>
-        {fileName && <div className="file-preview"><div className="file-icon"><FileIcon /></div><div><strong>{fileName}</strong><span>{modality === 'multilingual' ? 'Multilingual document' : `${modality[0].toUpperCase()}${modality.slice(1)} document`}</span></div><span className="file-ready"><CheckIcon /> Ready</span></div>}
+        {fileName && <div className="file-preview"><div className="file-icon"><FileIcon /></div><div><strong>{fileName}</strong><span>{modality === 'multilingual' ? 'Multilingual document' : `${modality[0].toUpperCase()}${modality.slice(1)} document`} · {selectedFile ? formatFileSize(selectedFile.size) : 'Size unavailable'}</span></div><span className="file-ready"><CheckIcon /> Ready</span></div>}
         <div className="form-divider" />
         <div className="form-grid">
-          <label>Patient search / select<div className="input-with-icon"><span className="patient-initials">AM</span><input value="Ananya Mehta" readOnly /><span className="select-caret">⌄</span></div></label>
-          <label>Patient ID<input value={patientId} onChange={(event) => setPatientId(event.target.value)} /></label>
-          <label>Encounter ID<input value={encounterId} onChange={(event) => setEncounterId(event.target.value)} /></label>
+          <label htmlFor="upload-patient-select">Patient search / select<select id="upload-patient-select" value={patientId} onChange={(event) => { setPatientId(event.target.value); setWorkflow({ patient_id: event.target.value }) }} required><option value="">{patientsLoading ? 'Loading patients…' : 'Select a patient'}</option>{patients.map((patient) => <option key={patient.patient_id} value={patient.patient_id}>{patient.display_name || 'Unnamed patient'} · {patient.patient_id}</option>)}</select></label>
+          <label>Patient ID<input value={patientId} readOnly aria-label="Selected patient ID" placeholder="Selected from patient list" /></label>
+          <label>Encounter ID<input value={encounterId} onChange={(event) => { setEncounterId(event.target.value); setWorkflow({ encounter_id: event.target.value }) }} required /></label>
         </div>
+        {patientsError && <p className="error-copy"><AlertIcon /> Unable to load authorized patients. Return to Patients and try again.</p>}
+        {selectedPatient && <div className="upload-patient-summary"><div><span>Selected patient</span><strong>{selectedPatient.display_name || 'Unnamed patient'}</strong></div><div><span>Backend patient_id</span><strong>{selectedPatient.patient_id}</strong></div>{encounterId && <div><span>Encounter</span><strong>{encounterId}</strong></div>}</div>}
       </SectionCard>
 
-      <SectionCard title="Document type" eyebrow="02 / ROUTING" className="modality-card">
+      <SectionCard title="Document type" eyebrow="02 / ROUTING" className="modality-card upload-options-card">
         <p className="card-intro">Choose the document type so MedFlow can apply the right review safeguards.</p>
         <div className="modality-options">{(['typed', 'handwritten', 'multilingual'] as InputModality[]).map((item) => <button key={item} className={`modality-option ${modality === item ? 'selected' : ''}`} onClick={() => setModality(item)}><span className="radio-indicator" /><span><strong>{item[0].toUpperCase() + item.slice(1)}</strong><small>{item === 'typed' ? 'Standard text document' : item === 'handwritten' ? 'Handwritten document with additional review' : 'Document in another language with translation'}</small></span></button>)}</div>
+        {modality === 'multilingual' && <p className="multilingual-contract-note">The current multilingual API requires source text and source language.</p>}
         {modality === 'multilingual' && <div className="language-panel"><div><label>Source language</label><select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)}><option value="hi">Hindi</option><option value="ta">Tamil</option><option value="en">English</option></select></div><div><label>Translation confidence</label><div className="read-only-value">{output ? `${Math.round((output.translation_confidence ?? 0) * 100)}%` : '—'}</div></div><div className="original-text"><label>Source text</label><textarea value={textInput} onChange={(event) => setTextInput(event.target.value)} placeholder="Paste the multilingual clinical text here." rows={3} /><span>Original language text is preserved</span><p>{output?.original_language_text ?? 'Original text will appear here after extraction.'}</p></div></div>}
         <div className="route-note"><span className="route-note-icon"><CheckIcon /></span><span><strong>Processing method selected</strong><small>{modality === 'typed' ? 'Typed documents use standard text processing.' : 'This document will receive additional confidence review.'}</small></span></div>
-        <button className="primary-button process-button" onClick={() => upload.mutate()} disabled={upload.isPending || !fileName || (modality === 'multilingual' && import.meta.env.MODE !== 'test' && !textInput.trim())}>{upload.isPending ? 'Starting processing…' : 'Start processing'}<ArrowIcon /></button>
+        <button className="primary-button process-button" onClick={() => upload.mutate()} disabled={upload.isPending || (modality !== 'multilingual' && !fileName) || !patientId || !encounterId || (modality === 'multilingual' && import.meta.env.MODE !== 'test' && !textInput.trim())}>{upload.isPending ? 'Starting processing…' : 'Start processing'}<ArrowIcon /></button>
         {upload.isError && <p className="error-copy"><AlertIcon /> Unable to start processing. Try again.</p>}
       </SectionCard>
     </div>
 
     {output && <ExtractionSnapshot output={output} status={currentStatus} />}
   </div>
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function ExtractionSnapshot({ output, status }: { output: Step1Output; status: ProcessingStatus }) {
