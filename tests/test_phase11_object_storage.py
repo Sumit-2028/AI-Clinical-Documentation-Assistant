@@ -349,3 +349,46 @@ def test_storage_logs_never_contain_keys_or_identifiers(caplog):
     assert key not in emitted
     assert str(patient_id) not in emitted
     assert str(document_id) not in emitted
+
+
+# --- deployment configuration -----------------------------------------------
+
+
+def test_minio_style_configuration_uses_path_addressing(monkeypatch):
+    monkeypatch.setenv("STEP1_STORAGE_MODE", "s3")
+    monkeypatch.setenv("S3_ENDPOINT_URL", "http://minio:9000")
+    monkeypatch.setenv("S3_FORCE_PATH_STYLE", "true")
+    monkeypatch.setenv("S3_ACCESS_KEY_ID", "minioadmin")
+    monkeypatch.setenv("S3_SECRET_ACCESS_KEY", "minioadmin")
+
+    storage = build_object_storage()
+
+    assert storage.endpoint_url == "http://minio:9000"
+    assert storage.force_path_style is True
+    assert storage.access_key_id == "minioadmin"
+
+
+def test_aws_style_configuration_drops_endpoint_and_static_credentials(monkeypatch):
+    # Going to real AWS is configuration only: no endpoint override, virtual
+    # host addressing, and credentials from the instance role.
+    monkeypatch.setenv("STEP1_STORAGE_MODE", "s3")
+    monkeypatch.setenv("S3_ENDPOINT_URL", "")
+    monkeypatch.setenv("S3_FORCE_PATH_STYLE", "false")
+    monkeypatch.delenv("S3_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("S3_SECRET_ACCESS_KEY", raising=False)
+    monkeypatch.setenv("S3_SSE", "aws:kms")
+    monkeypatch.setenv("S3_SSE_KMS_KEY_ID", "arn:aws:kms:region:acct:key/id")
+
+    storage = build_object_storage()
+
+    assert storage.endpoint_url is None
+    assert storage.force_path_style is False
+    assert storage.access_key_id is None
+    assert storage.sse == "aws:kms"
+
+
+def test_bucket_creation_is_off_by_default(monkeypatch):
+    monkeypatch.setenv("STEP1_STORAGE_MODE", "s3")
+    monkeypatch.delenv("S3_CREATE_BUCKET_IF_MISSING", raising=False)
+
+    assert build_object_storage().create_bucket_if_missing is False

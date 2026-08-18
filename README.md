@@ -22,7 +22,30 @@ Gateway authentication/RBAC
 pytest
 ```
 
-Deterministic AI adapters are the default, so tests do not need external API keys. The gateway mounts the Step 1–4 routes behind Bearer JWT authentication and RBAC. Standalone service apps are intended for isolated development tests and must not be exposed directly to an untrusted network.
+Deterministic AI adapters are the default, so tests do not need external API keys.
+
+### Object storage for uploaded documents
+
+Step 1 stores the original uploaded file before extraction runs. The default
+`STEP1_STORAGE_MODE=mock` keeps objects in process memory, so the test suite and
+a bare `uvicorn` need no storage service at all.
+
+To exercise the real S3 code path locally, start MinIO and switch the mode:
+
+```text
+docker compose up -d minio minio-init
+```
+
+`minio-init` creates the bucket, which does not exist by default. The MinIO
+console is at `http://localhost:9001`. Set `MINIO_ROOT_PASSWORD` in `.env`
+first; compose refuses to start without it.
+
+MinIO speaks the S3 API, so moving to AWS is configuration rather than code:
+leave `S3_ENDPOINT_URL` empty, set `S3_FORCE_PATH_STYLE=false`, leave the access
+key and secret blank so the instance role is used, and set `S3_SSE=aws:kms`.
+The bucket itself should be created out of band with public access blocked,
+default encryption, and versioning; the application is not granted
+`CreateBucket`. The gateway mounts the Step 1–4 routes behind Bearer JWT authentication and RBAC. Standalone service apps are intended for isolated development tests and must not be exposed directly to an untrusted network.
 
 Security controls and deployment limitations are documented in [docs/security.md](docs/security.md).
 
