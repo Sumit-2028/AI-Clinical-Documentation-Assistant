@@ -1,0 +1,106 @@
+{
+  "htn": {
+    "expansion": "hypertension",
+    "is_ambiguous": false,
+    "category": "condition"
+  },
+  "dm": {
+    "expansion": "diabetes mellitus",
+    "is_ambiguous": false,
+    "category": "condition"
+  },
+  "sob": {
+    "expansion": "shortness of breath",
+    "is_ambiguous": false,
+    "category": "symptom"
+  },
+  "bp": {
+    "expansion": "blood pressure",
+    "is_ambiguous": false,
+    "category": "vital"
+  },
+  "hr": {
+    "expansion": "heart rate",
+    "is_ambiguous": false,
+    "category": "vital"
+  },
+  "rr": {
+    "expansion": "respiratory rate",
+    "is_ambiguous": false,
+    "category": "vital"
+  },
+  "pt": {
+    "expansion": "patient",
+    "is_ambiguous": true,
+    "candidates": [
+      "patient",
+      "physical therapy",
+      "prothrombin time"
+    ],
+    "category": "general"
+  },
+  "c/o": {
+    "expansion": "complains of",
+    "is_ambiguous": false,
+    "category": "general"
+  },
+  "hx": {
+    "expansion": "history",
+    "is_ambiguous": false,
+    "category": "general"
+  },
+  "dx": {
+    "expansion": "diagnosis",
+    "is_ambiguous": false,
+    "category": "general"
+  },
+  "tx": {
+    "expansion": "treatment",
+    "is_ambiguous": true,
+    "candidates": [
+      "treatment",
+      "transplant"
+    ],
+    "category": "general"
+  },
+  "meds": {
+    "expansion": "medications",
+    "is_ambiguous": false,
+    "category": "general"
+  },
+  "bd": {
+    "expansion": "twice daily",
+    "is_ambiguous": false,
+    "category": "dosage"
+  },
+  "bid": {
+    "expansion": "twice daily",
+    "is_ambiguous": false,
+    "category": "dosage"
+  },
+  "tid": {
+    "expansion": "three times daily",
+    "is_ambiguous": false,
+    "category": "dosage"
+  },
+  "qid": {
+    "expansion": "four times daily",
+    "is_ambiguous": false,
+    "category": "dosage"
+  },
+  "od": {
+    "expansion": "once daily",
+    "is_ambiguous": false,
+    "category": "dosage"
+  },
+  "po": {
+    "expansion": "orally",
+    "is_ambiguous": false,
+    "category": "dosage"
+  },
+  "prn": {
+    "expansion": "as needed",
+    "is_ambiguous": false,
+    "category": "dosage"
+  }
+}
