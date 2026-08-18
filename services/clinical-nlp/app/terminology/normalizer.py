@@ -1,5 +1,8 @@
 from dataclasses import dataclass
+import json
+from pathlib import Path
 import re
+from typing import Any
 
 from ..abbreviations import ExpandedField
 
@@ -12,27 +15,125 @@ class TerminologyMatch:
     matched_text: str
 
 
-TERMINOLOGY: tuple[tuple[str, str, str | None, str], ...] = (
-    ("penicillin allergy", "Allergy to penicillin", "91936005", "allergy"),
-    ("hypertension", "Hypertension", "38341003", "cardiology"),
-    ("high blood pressure", "Hypertension", "38341003", "cardiology"),
-    ("diabetes mellitus", "Diabetes mellitus", "73211009", "endocrinology"),
-    ("shortness of breath", "Dyspnea", "267036007", "respiratory"),
-    ("fever", "Fever", "386661006", "general medicine"),
-    ("cough", "Cough", "49727002", "respiratory"),
-    ("chest pain", "Chest pain", "29857009", "cardiology"),
-    ("metformin", "Metformin", None, "medication"),
-    ("insulin", "Insulin", None, "medication"),
-)
+DEFAULT_TERMINOLOGY_ENTRIES: list[dict[str, Any]] = [
+    {
+        "concept": "Allergy to penicillin",
+        "snomed_ct_id": "91936005",
+        "clinical_domain": "allergy",
+        "synonyms": ["penicillin allergy", "allergy to penicillin"],
+    },
+    {
+        "concept": "Hypertension",
+        "snomed_ct_id": "38341003",
+        "clinical_domain": "cardiology",
+        "synonyms": ["hypertension", "high blood pressure"],
+    },
+    {
+        "concept": "Diabetes mellitus",
+        "snomed_ct_id": "73211009",
+        "clinical_domain": "endocrinology",
+        "synonyms": ["diabetes mellitus", "diabetes"],
+    },
+    {
+        "concept": "Dyspnea",
+        "snomed_ct_id": "267036007",
+        "clinical_domain": "respiratory",
+        "synonyms": ["shortness of breath", "dyspnea"],
+    },
+    {
+        "concept": "Fever",
+        "snomed_ct_id": "386661006",
+        "clinical_domain": "general medicine",
+        "synonyms": ["fever"],
+    },
+    {
+        "concept": "Cough",
+        "snomed_ct_id": "49727002",
+        "clinical_domain": "respiratory",
+        "synonyms": ["cough"],
+    },
+    {
+        "concept": "Chest pain",
+        "snomed_ct_id": "29857009",
+        "clinical_domain": "cardiology",
+        "synonyms": ["chest pain"],
+    },
+    {
+        "concept": "Metformin",
+        "snomed_ct_id": None,
+        "clinical_domain": "medication",
+        "synonyms": ["metformin"],
+    },
+    {
+        "concept": "Insulin",
+        "snomed_ct_id": None,
+        "clinical_domain": "medication",
+        "synonyms": ["insulin"],
+    },
+]
+
+
+def _load_terminology_tuples() -> tuple[tuple[str, str, str | None, str], ...]:
+    entries = DEFAULT_TERMINOLOGY_ENTRIES
+    seed_path = Path(__file__).resolve().parents[4] / "database" / "seeds" / "snomed_subset.json"
+    if seed_path.is_file():
+        try:
+            with open(seed_path, encoding="utf-8") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, list) and loaded:
+                    entries = loaded
+        except Exception:
+            pass
+
+    tuples: list[tuple[str, str, str | None, str]] = []
+    seen: set[str] = set()
+
+    for item in entries:
+        concept = str(item.get("concept", "")).strip()
+        code = item.get("snomed_ct_id")
+        domain = str(item.get("clinical_domain", "general medicine")).strip()
+        synonyms = item.get("synonyms", [])
+        if not isinstance(synonyms, list) or not synonyms:
+            synonyms = [concept.casefold()]
+
+        for syn in synonyms:
+            phrase = str(syn).strip().casefold()
+            if phrase and phrase not in seen:
+                seen.add(phrase)
+                tuples.append((phrase, concept, code, domain))
+
+    # Always sort by phrase length descending
+    return tuple(sorted(tuples, key=lambda item: len(item[0]), reverse=True))
+
+
+# Maintained tuple format for full backwards compatibility
+TERMINOLOGY: tuple[tuple[str, str, str | None, str], ...] = _load_terminology_tuples()
 
 
 def normalize_terminology(text: str) -> TerminologyMatch:
-    lowered = text.casefold()
-    for phrase, concept, code, domain in sorted(
-        TERMINOLOGY,
-        key=lambda item: len(item[0]),
-        reverse=True,
-    ):
+    """Normalize clinical text to curated preferred concepts and verified SNOMED CT IDs."""
+    if not text:
+        return TerminologyMatch(
+            concept="",
+            snomed_ct_id=None,
+            clinical_domain="general medicine",
+            matched_text="",
+        )
+
+    lowered = text.casefold().strip()
+
+    # 1. Exact match against known synonyms/concepts
+    for phrase, concept, code, domain in TERMINOLOGY:
+        if lowered == phrase:
+            return TerminologyMatch(
+                concept=concept,
+                snomed_ct_id=code,
+                clinical_domain=domain,
+                matched_text=phrase,
+            )
+
+    # 2. Word boundary substring search
+    for phrase, concept, code, domain in TERMINOLOGY:
         if re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", lowered):
             return TerminologyMatch(
                 concept=concept,
@@ -41,6 +142,7 @@ def normalize_terminology(text: str) -> TerminologyMatch:
                 matched_text=phrase,
             )
 
+    # 3. Fallback for unmapped terms
     return TerminologyMatch(
         concept=text.strip().capitalize(),
         snomed_ct_id=None,
