@@ -13,8 +13,9 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 const isTestRuntime = import.meta.env.MODE === 'test'
-const isDevelopmentBypass = import.meta.env.DEV && import.meta.env.VITE_AUTH_BYPASS !== 'false'
-const isLocalAuthBypass = isTestRuntime || isDevelopmentBypass
+// Tests may use the deterministic fixture identity. Production and local
+// development always restore and validate a real backend session.
+const isLocalAuthBypass = isTestRuntime
 const testUser: AuthUser = {
   id: 'test-user',
   email: 'doctor@example.com',

@@ -1,4 +1,5 @@
 from collections.abc import Callable
+import json
 from typing import Any
 from uuid import UUID
 
@@ -13,6 +14,11 @@ from .security import (
     ACCESS_TOKEN_TYPE,
     TokenValidationError,
     decode_token,
+)
+from ..patients.service import (
+    PatientAccessDeniedError,
+    PatientNotFoundError,
+    require_patient_access,
 )
 
 
@@ -49,7 +55,9 @@ def get_token_payload(
             expected_type=ACCESS_TOKEN_TYPE,
         )
     except TokenValidationError as exc:
-        raise _unauthorized(str(exc)) from exc
+        # Do not disclose whether a token was malformed, expired, or signed
+        # with the wrong key to an unauthenticated caller.
+        raise _unauthorized() from exc
 
 
 def _find_user(db: Session, user_id: str) -> User | None:
@@ -112,9 +120,98 @@ require_role = require_roles
 require_permission = require_permissions
 
 
-def require_pipeline_access(
+async def _patient_id_from_request(request: Request) -> UUID | None:
+    """Extract a patient identity without trusting frontend-only state."""
+
+    path_patient_id = request.path_params.get("patient_id")
+    if path_patient_id:
+        try:
+            return UUID(str(path_patient_id))
+        except ValueError:
+            return None
+
+    query_patient_id = request.query_params.get("patient_id")
+    if query_patient_id:
+        try:
+            return UUID(query_patient_id)
+        except ValueError:
+            return None
+
+    content_type = request.headers.get("content-type", "").casefold()
+    if request.method.upper() not in {"POST", "PUT", "PATCH"}:
+        return None
+
+    try:
+        if content_type.startswith("multipart/"):
+            form = await request.form()
+            raw_patient_id = form.get("patient_id")
+        elif "application/json" in content_type:
+            body = await request.body()
+            payload = json.loads(body.decode("utf-8")) if body else {}
+            raw_patient_id = payload.get("patient_id") if isinstance(payload, dict) else None
+        else:
+            raw_patient_id = None
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+    if raw_patient_id is None:
+        return None
+    try:
+        return UUID(str(raw_patient_id))
+    except ValueError:
+        return None
+
+
+def _patient_id_from_resource(request: Request) -> UUID | None:
+    """Resolve ownership for resource paths that do not carry patient_id."""
+
+    path = request.url.path
+    resource_id = request.path_params.get("document_id")
+    if resource_id:
+        try:
+            parsed_id = UUID(str(resource_id))
+        except ValueError:
+            return None
+        try:
+            if "/step1/" in path:
+                output = request.app.state.step1_service.get_document(parsed_id)
+                return output.patient_id
+            if "/step2/" in path:
+                batch = request.app.state.clinical_nlp_service.get(parsed_id)
+                return batch.patient_id
+            if "/step4/" in path:
+                document = request.app.state.document_service.get(parsed_id)
+                return document.patient_id if document is not None else None
+        except Exception:
+            return None
+
+    resource_id = request.path_params.get("conflict_id")
+    if resource_id:
+        try:
+            conflict = request.app.state.memory_engine_service.store.get_conflict(UUID(str(resource_id)))
+            return conflict.patient_id if conflict is not None else None
+        except (AttributeError, ValueError):
+            return None
+
+    resource_id = request.path_params.get("event_id")
+    if resource_id:
+        try:
+            event = request.app.state.memory_engine_service.store.get_event(UUID(str(resource_id)))
+            return event.patient_id if event is not None else None
+        except (AttributeError, ValueError):
+            return None
+
+    return None
+
+
+async def _resolve_pipeline_patient_id(request: Request) -> UUID | None:
+    return await _patient_id_from_request(request) or _patient_id_from_resource(request)
+
+
+async def require_pipeline_access(
     request: Request,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> User:
     """Authorize the mounted pipeline routes by operation and resource.
 
@@ -133,6 +230,21 @@ def require_pipeline_access(
         return current_user
     if not has_permission(current_user, required_permission):
         raise _forbidden("Required permission is missing.")
+
+    patient_id = await _resolve_pipeline_patient_id(request)
+    if patient_id is None:
+        if path.endswith("/step3/conflicts") and method == "GET" and current_user.role != "admin":
+            raise _forbidden("A patient_id filter is required for conflict access.")
+        # Let the endpoint's own validation/not-found behavior handle routes
+        # whose resource has not been created yet.
+        return current_user
+
+    try:
+        require_patient_access(db, current_user, patient_id)
+    except PatientNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found.") from exc
+    except PatientAccessDeniedError as exc:
+        raise _forbidden("Patient access is not permitted.") from exc
     return current_user
 
 

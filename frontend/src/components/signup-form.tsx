@@ -1,9 +1,38 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { register } from '../api/auth'
 
 export function SignupForm() {
-  const [submitted, setSubmitted] = useState(false)
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setSubmitted(true) }
+  const navigate = useNavigate()
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const password = String(form.get('password') ?? '')
+    const confirmation = String(form.get('confirm-password') ?? '')
+    if (password !== confirmation) {
+      setFormError('Passwords do not match.')
+      return
+    }
+    setFormError(null)
+    setIsSubmitting(true)
+    try {
+      const user = await register({
+        full_name: String(form.get('name') ?? ''),
+        email: String(form.get('email') ?? ''),
+        password,
+        role: 'physician',
+      })
+      navigate('/login', { replace: true, state: { registered: true, email: user.email } })
+    } catch (reason) {
+      setFormError(reason instanceof Error ? reason.message : 'Unable to create the account.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return <div className="auth-form-wrap">
     <div className="auth-card">
       <div className="auth-card-header"><p className="auth-kicker">PHYSICIAN WORKSPACE</p><h1>Create your MedFlowAI account</h1><p>Set up your physician workspace.</p></div>
@@ -12,8 +41,8 @@ export function SignupForm() {
         <label className="auth-field"><span>Email</span><input id="signup-email" name="email" type="email" placeholder="doctor@clinic.org" autoComplete="email" required /></label>
         <div className="auth-field-grid"><label className="auth-field"><span>Password</span><input id="signup-password" name="password" type="password" autoComplete="new-password" minLength={8} required /></label><label className="auth-field"><span>Confirm Password</span><input id="confirm-password" name="confirm-password" type="password" autoComplete="new-password" minLength={8} required /></label></div>
         <p className="auth-help">Must be at least 8 characters long.</p>
-        <button className="auth-submit" type="submit">Create Account <span>→</span></button>
-        {submitted && <p className="auth-status" role="status">Account creation is ready to connect to your existing sign-up service.</p>}
+        <button className="auth-submit" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Creating account…' : <>Create Account <span>→</span></>}</button>
+        {formError && <p className="auth-status auth-error" role="alert">{formError}</p>}
       </form>
       <p className="auth-switch">Already have an account? <Link to="/login">Sign in</Link></p>
     </div>

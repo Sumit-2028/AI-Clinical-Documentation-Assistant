@@ -96,12 +96,10 @@ clinical facts.
 The backend remains authoritative for expiration, token type, inactive users,
 roles, and permissions. Production requests do not use a fixture physician ID.
 
-For local UI development only, `frontend/.env.example` includes
-`VITE_AUTH_BYPASS=true`. The frontend applies this flag only when Vite is in
-development mode, starts with the demo physician identity, and skips the sign-in
-screen. Production builds still require real authentication. This flag does
-not disable gateway JWT checks; API operations still require a valid backend
-session unless a separate local backend authentication setup is used.
+Local development uses the same real authentication flow as production. There
+is no Vite authentication bypass. Deterministic fixture identity is retained
+only inside the test runtime, so a local browser must register or use an
+existing PostgreSQL-backed account before opening protected routes.
 
 ## 5. File upload and job lifecycle
 

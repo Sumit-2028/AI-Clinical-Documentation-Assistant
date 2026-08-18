@@ -3,6 +3,13 @@ export interface LoginRequest {
   password: string
 }
 
+export interface RegisterRequest {
+  full_name: string
+  email: string
+  password: string
+  role?: 'physician' | 'patient'
+}
+
 export interface RefreshTokenRequest {
   refresh_token: string
 }
@@ -19,4 +26,5 @@ export interface AuthUser {
   full_name: string
   role: string
   is_active: boolean
+  patient_id?: string | null
 }

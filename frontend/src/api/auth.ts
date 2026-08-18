@@ -1,4 +1,4 @@
-import type { AuthUser, LoginRequest, RefreshTokenRequest, TokenResponse } from '../contracts/auth'
+import type { AuthUser, LoginRequest, RefreshTokenRequest, RegisterRequest, TokenResponse } from '../contracts/auth'
 import { apiClient } from './client'
 
 const REFRESH_TOKEN_KEY = 'clinical-memory.refresh-token'
@@ -33,7 +33,19 @@ export function clearAuthTokens(): void {
 export async function login(request: LoginRequest): Promise<AuthUser> {
   const tokens = await apiClient.postJson<TokenResponse>('/api/v1/auth/login', request, { skipAuth: true, retryOnUnauthorized: false })
   storeTokens(tokens)
-  return getCurrentUser()
+  try {
+    return await getCurrentUser()
+  } catch (error) {
+    clearAuthTokens()
+    throw error
+  }
+}
+
+export function register(request: RegisterRequest): Promise<AuthUser> {
+  return apiClient.postJson<AuthUser>('/api/v1/auth/register', request, {
+    skipAuth: true,
+    retryOnUnauthorized: false,
+  })
 }
 
 export async function refreshAccessToken(): Promise<string | null> {

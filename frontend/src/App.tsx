@@ -19,6 +19,7 @@ import {
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { SignupPage } from './pages/SignupPage'
+import { PatientsPage } from './pages/PatientsPage'
 import { WorkflowProvider } from './context/WorkflowContext'
 import { AuthProvider, useAuth } from './context/AuthContext'
 
@@ -40,10 +41,7 @@ export function App() {
               <Route path="/review-queue" element={<ReviewQueuePage />} />
               <Route path="/verification" element={<VerificationPage />} />
               <Route path="/audit-log" element={<AuditLogPage />} />
-              <Route
-                path="/patients"
-                element={<PlaceholderPage title="Patients" section="patients" />}
-              />
+              <Route path="/patients" element={<PatientsPage />} />
               <Route path="/memory" element={<MemoryExplorerPage />} />
               <Route
                 path="/conflicts"
