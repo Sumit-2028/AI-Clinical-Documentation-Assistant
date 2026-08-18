@@ -14,6 +14,7 @@ from services.clinical_nlp.app.service import ClinicalNLPService
 from services.doc_generation.app.service import DocumentService
 from services.input_processing.app.service import InputProcessingService
 from services.memory_engine.app.service import MemoryEngineService
+from services.object_storage import ObjectStorage, build_object_storage
 
 
 class InProcessMemoryWriteClient:
@@ -32,6 +33,7 @@ class IntegratedBackendServices:
     step2: ClinicalNLPService
     step3: MemoryEngineService
     step4: DocumentService
+    object_storage: ObjectStorage
 
 
 def build_integrated_services() -> IntegratedBackendServices:
@@ -43,6 +45,7 @@ def build_integrated_services() -> IntegratedBackendServices:
     )
     return IntegratedBackendServices(
         step1=InputProcessingService(),
+        object_storage=build_object_storage(),
         step2=ClinicalNLPService(),
         step3=step3,
         step4=step4,

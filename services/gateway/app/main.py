@@ -54,6 +54,7 @@ def create_app(
     register_exception_handlers(app)
 
     app.state.step1_service = services.step1
+    app.state.object_storage = services.object_storage
     app.state.clinical_nlp_service = services.step2
     app.state.memory_engine_service = services.step3
     app.state.document_service = services.step4

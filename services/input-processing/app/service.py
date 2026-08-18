@@ -22,6 +22,8 @@ from .preprocessing import (
     normalize_text,
     split_into_candidate_fields,
 )
+from services.object_storage import StoredObject
+
 from .repository import DocumentRepository, InMemoryDocumentRepository
 
 
@@ -55,6 +57,32 @@ class InputProcessingService:
         self.audit_logger = audit_logger or InMemoryAuditLogger()
         self.adapters = adapters or build_adapter_bundle()
 
+    def _record_source_object(
+        self,
+        document_id: UUID,
+        source_object: StoredObject | None,
+    ) -> None:
+        """Associate stored bytes with a document, if the repository supports it.
+
+        Reached through getattr so repository doubles predating the source
+        object methods keep working.
+        """
+
+        if source_object is None:
+            return
+        recorder = getattr(self.repository, "record_source_object", None)
+        if recorder is None:
+            return
+        recorder(document_id, source_object)
+
+    def get_source_object(self, document_id: UUID) -> StoredObject | None:
+        if self.repository.get(document_id) is None:
+            raise DocumentNotFoundError(str(document_id))
+        reader = getattr(self.repository, "get_source_object", None)
+        if reader is None:
+            return None
+        return reader(document_id)
+
     def process_typed(
         self,
         *,
@@ -62,8 +90,11 @@ class InputProcessingService:
         encounter_id: UUID,
         content: bytes,
         filename: str | None = None,
+        document_id: UUID | None = None,
+        source_object: StoredObject | None = None,
     ) -> Step1Output:
-        document_id = uuid4()
+        document_id = document_id or uuid4()
+        self._record_source_object(document_id, source_object)
         audit_event = self.audit_logger.record(
             document_id,
             "step1.processing_started",
@@ -108,8 +139,11 @@ class InputProcessingService:
         encounter_id: UUID,
         content: bytes,
         filename: str | None = None,
+        document_id: UUID | None = None,
+        source_object: StoredObject | None = None,
     ) -> Step1Output:
-        document_id = uuid4()
+        document_id = document_id or uuid4()
+        self._record_source_object(document_id, source_object)
         audit_event = self.audit_logger.record(
             document_id,
             "step1.processing_started",

@@ -3,6 +3,7 @@ from typing import Protocol
 from uuid import UUID
 
 from contracts.schemas import Step1Output
+from services.object_storage import StoredObject
 
 
 class DocumentRepository(Protocol):
@@ -12,12 +13,24 @@ class DocumentRepository(Protocol):
     def get(self, document_id: UUID) -> Step1Output | None:
         ...
 
+    def record_source_object(self, document_id: UUID, stored: StoredObject) -> None:
+        """Associate a document with the stored bytes it was extracted from.
+
+        Implementations added after ``save``/``get``; callers reach it through
+        ``getattr`` so older repository doubles keep working.
+        """
+        ...
+
+    def get_source_object(self, document_id: UUID) -> StoredObject | None:
+        ...
+
 
 class InMemoryDocumentRepository:
     """Thread-safe local repository used by the standalone Step 1 service."""
 
     def __init__(self) -> None:
         self._documents: dict[UUID, Step1Output] = {}
+        self._source_objects: dict[UUID, StoredObject] = {}
         self._lock = Lock()
 
     def save(self, output: Step1Output) -> Step1Output:
@@ -28,6 +41,14 @@ class InMemoryDocumentRepository:
     def get(self, document_id: UUID) -> Step1Output | None:
         with self._lock:
             return self._documents.get(document_id)
+
+    def record_source_object(self, document_id: UUID, stored: StoredObject) -> None:
+        with self._lock:
+            self._source_objects[document_id] = stored
+
+    def get_source_object(self, document_id: UUID) -> StoredObject | None:
+        with self._lock:
+            return self._source_objects.get(document_id)
 
 
 class SqlAlchemyDocumentRepository:
@@ -126,3 +147,43 @@ class SqlAlchemyDocumentRepository:
         if extraction is None:
             return None
         return Step1Output.model_validate(extraction.field_payload)
+
+    def record_source_object(self, document_id: UUID, stored: StoredObject) -> None:
+        from database.models import DocumentRecord
+
+        try:
+            document = (
+                self.db.query(DocumentRecord)
+                .filter(DocumentRecord.id == document_id)
+                .first()
+            )
+            if document is None:
+                return
+            document.storage_uri = stored.storage_uri
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def get_source_object(self, document_id: UUID) -> StoredObject | None:
+        from database.models import DocumentRecord
+
+        document = (
+            self.db.query(DocumentRecord)
+            .filter(DocumentRecord.id == document_id)
+            .first()
+        )
+        if document is None or not document.storage_uri:
+            return None
+
+        bucket, _, key = document.storage_uri.removeprefix("s3://").partition("/")
+        # Content type and size are authoritative in the object store; a head
+        # request fills them in when the caller needs them.
+        return StoredObject(
+            key=key,
+            bucket=bucket,
+            storage_uri=document.storage_uri,
+            content_type="",
+            size_bytes=0,
+            checksum_sha256="",
+        )
