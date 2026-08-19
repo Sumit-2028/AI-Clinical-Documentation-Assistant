@@ -222,7 +222,7 @@ class TestEdgeCases:
         # Check that we get at least some known types
         assert any(t in entity_types for t in ["Disease", "condition", "Symptom", "Medication", "Dosage", "Route", "Allergy", "Procedure", "LaboratoryFinding"])
 
-def test_multiple_fields_in_step1_output(self, integration_adapter_bundle):
+def test_multiple_fields_in_step1_output(integration_adapter_bundle):
         """Step1Output with multiple extracted fields should process all."""
         patient_id = uuid4()
         encounter_id = uuid4()
@@ -324,8 +324,8 @@ class TestAPILayerIntegration:
 
         assert response.status_code == 422
 
-    def test_get_missing_document_returns_404(self, mock_adapter_bundle):
-        service = ClinicalNLPService(adapters=mock_adapter_bundle)
+    def test_get_missing_document_returns_404(self, integration_adapter_bundle):
+        service = ClinicalNLPService(adapters=integration_adapter_bundle)
 
         from fastapi.testclient import TestClient
         from services.clinical_nlp.app.main import create_app
