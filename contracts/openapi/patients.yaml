@@ -68,7 +68,12 @@ components:
       name: patient_id
       in: path
       required: true
-      schema: {type: string, format: uuid}
+      schema:
+        oneOf:
+          - type: string
+            pattern: '^[0-9]{6,8}$'
+          - type: string
+            format: uuid
   schemas:
     PatientCreateRequest:
       type: object
@@ -86,13 +91,13 @@ components:
       type: object
       required: [patient_id]
       properties:
-        patient_id: {type: string, format: uuid}
+        patient_id: {type: string, pattern: '^[0-9]{6,8}$'}
         display_name: {type: string, nullable: true}
         user_id: {type: string, format: uuid, nullable: true}
     PatientAssignmentResponse:
       type: object
       required: [patient_id, physician_id, status]
       properties:
-        patient_id: {type: string, format: uuid}
+        patient_id: {type: string, pattern: '^[0-9]{6,8}$'}
         physician_id: {type: string, format: uuid}
         status: {type: string}

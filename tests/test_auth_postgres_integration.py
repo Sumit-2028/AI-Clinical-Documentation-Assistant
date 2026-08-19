@@ -23,7 +23,7 @@ def test_registration_login_and_patient_access_persist_in_postgres():
     patient_email = f"integration-patient-{suffix}@example.com"
     password = "integration-password-123"
     client = TestClient(create_app())
-    created_patient_ids: list[UUID] = []
+    created_patient_ids: list[int] = []
 
     try:
         physician = client.post(
@@ -42,7 +42,9 @@ def test_registration_login_and_patient_access_persist_in_postgres():
         assert patient.status_code == 201
         assert other.status_code == 201
 
-        patient_id = UUID(patient.json()["patient_id"])
+        patient_id = patient.json()["patient_id"]
+        assert patient_id.isdigit()
+        assert 6 <= len(patient_id) <= 8
         created_patient_ids.append(patient_id)
         physician_headers = _login(client, physician_email, password)
         other_headers = _login(client, other_email, password)
@@ -50,7 +52,7 @@ def test_registration_login_and_patient_access_persist_in_postgres():
 
         me = client.get("/api/v1/auth/me", headers=patient_headers)
         assert me.status_code == 200
-        assert UUID(me.json()["patient_id"]) == patient_id
+        assert me.json()["patient_id"] == patient_id
 
         created_for_physician = client.post(
             "/api/v1/patients",
@@ -58,7 +60,7 @@ def test_registration_login_and_patient_access_persist_in_postgres():
             json={"display_name": "Assigned Integration Patient"},
         )
         assert created_for_physician.status_code == 200
-        assigned_patient_id = UUID(created_for_physician.json()["patient_id"])
+        assigned_patient_id = created_for_physician.json()["patient_id"]
         created_patient_ids.append(assigned_patient_id)
 
         allowed = client.get(f"/api/v1/patients/{assigned_patient_id}", headers=physician_headers)
@@ -69,8 +71,8 @@ def test_registration_login_and_patient_access_persist_in_postgres():
         # A fresh SQLAlchemy session verifies the identifier and assignment
         # survive the request/session boundary (and therefore a backend restart).
         with SessionLocal() as db:
-            persisted = db.query(Patient).filter(Patient.id == assigned_patient_id).first()
-            assignment = db.query(PatientAssignment).filter(PatientAssignment.patient_id == assigned_patient_id).first()
+            persisted = db.query(Patient).filter(Patient.public_patient_id == int(assigned_patient_id)).first()
+            assignment = db.query(PatientAssignment).filter(PatientAssignment.patient_id == persisted.id).first()
             assert persisted is not None
             assert assignment is not None
             assert assignment.status == "active"
@@ -84,13 +86,13 @@ def _login(client: TestClient, email: str, password: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def _cleanup(*emails: str, created_patient_ids: list[UUID]) -> None:
+def _cleanup(*emails: str, created_patient_ids: list[int]) -> None:
     with SessionLocal() as db:
         users = db.query(User).filter(User.email.in_(emails)).all()
         user_ids = [user.id for user in users]
         patient_rows = db.query(Patient).filter(Patient.user_id.in_(user_ids)).all() if user_ids else []
         for created_patient_id in created_patient_ids:
-            assigned = db.query(Patient).filter(Patient.id == created_patient_id).first()
+            assigned = db.query(Patient).filter(Patient.public_patient_id == int(created_patient_id)).first()
             if assigned is not None:
                 patient_rows.append(assigned)
         for patient in {row.id: row for row in patient_rows}.values():

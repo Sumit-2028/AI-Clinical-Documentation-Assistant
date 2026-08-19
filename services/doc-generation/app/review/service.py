@@ -119,7 +119,10 @@ class DocumentReviewService:
                 "Document cannot be finalized until validation failures are resolved."
             )
 
-        payload = build_memory_write_payload(record.request)
+        payload = build_memory_write_payload(
+            record.request,
+            actor_id=request.physician_id,
+        )
         self._submit_memory_payload(payload)
         finalized = reviewed_document.model_copy(
             update={

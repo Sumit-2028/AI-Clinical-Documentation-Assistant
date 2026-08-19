@@ -74,7 +74,12 @@ components:
       type: object
       required: [patient_id, encounter_id, document_type, current_consultation_events, retrieved_context]
       properties:
-        patient_id: {type: string, format: uuid}
+        patient_id:
+          oneOf:
+            - type: string
+              pattern: '^[0-9]{6,8}$'
+            - type: string
+              format: uuid
         encounter_id: {type: string, format: uuid}
         document_type:
           type: string

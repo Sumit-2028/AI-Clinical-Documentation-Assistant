@@ -16,12 +16,12 @@ class PatientAssignmentRequest(BaseModel):
 
 
 class PatientResponse(BaseModel):
-    patient_id: UUID
+    patient_id: str
     display_name: str | None = None
-    user_id: UUID | None = None
+    user_id: str | None = None
 
 
 class PatientAssignmentResponse(BaseModel):
-    patient_id: UUID
-    physician_id: UUID
+    patient_id: str
+    physician_id: str
     status: str

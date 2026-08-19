@@ -6,6 +6,12 @@ Scope: the backend under `clinical-memory-system/`, including the gateway,
 Steps 1–4, shared contracts, database models and migrations, AI adapters,
 Docker configuration, security controls, and automated tests.
 
+> Historical note: this audit describes the pre-patient-identity and
+> pre-durable-pipeline state. The authoritative current status is
+> [docs/final-system-status.md](final-system-status.md); statements below about
+> UUID public IDs, in-memory gateway defaults, missing assignments, and an
+> empty aggregate OpenAPI file are retained as historical findings.
+
 This audit records only behavior that was inspected or tested. It does not
 add implementation features.
 

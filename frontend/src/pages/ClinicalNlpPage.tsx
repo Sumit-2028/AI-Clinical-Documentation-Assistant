@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useClinicalNlpOutput, useProcessClinicalNlp } from '../hooks/useStep2'
 import { useStep1Output } from '../hooks/useStep1'
 import { useWriteFinalizedMemory } from '../hooks/useDocuments'
+import { ApiError } from '../api/client'
 import type { ClinicalEntityType, ClinicalEvent } from '../contracts/clinicalEvent'
 import { useWorkflow, type WorkflowNavigationState } from '../context/WorkflowContext'
 import { ClinicalEventCard, type ClinicalFindingResolution } from '../components/ClinicalEventCard'
@@ -20,9 +21,15 @@ export function ClinicalNlpPage() {
   const location = useLocation()
   const routeWorkflow = (location.state as WorkflowNavigationState | null)?.workflow
   const { workflow, setWorkflow } = useWorkflow()
-  const { data: sourceData, isLoading } = useClinicalNlpOutput(workflow.document_id)
-  const { data: step1Output } = useStep1Output(workflow.document_id)
   const nlpProcess = useProcessClinicalNlp()
+  // Step 2 is created by POST /step2/process. Do not query the result before
+  // that mutation succeeds; a missing result is expected during processing,
+  // not an API error that should be retried by the browser.
+  const { data: sourceData, isLoading } = useClinicalNlpOutput(
+    workflow.document_id,
+    import.meta.env.MODE === 'test' || nlpProcess.isSuccess,
+  )
+  const { data: step1Output } = useStep1Output(workflow.document_id)
   const [selectedEntity, setSelectedEntity] = useState<'All' | ClinicalEntityType>('All')
   const [selectedEvent, setSelectedEvent] = useState<ClinicalEvent | null>(null)
   const [showAllFindings, setShowAllFindings] = useState(false)
@@ -37,6 +44,9 @@ export function ClinicalNlpPage() {
 
   const nlpData = nlpProcess.data
   const nlpComplete = Boolean(nlpData)
+  const step1NeedsVerification = step1Output?.processing_status === 'pending_human_verification'
+  const step1Failed = step1Output?.processing_status === 'failed'
+  const nlpErrorMessage = nlpProcess.isError ? formatNlpError(nlpProcess.error) : ''
   const sourceEvents = sourceData?.clinical_events ?? []
   const events = nlpData?.clinical_events ?? []
   const ambiguousEvents = sourceEvents.filter((event) => abbreviationOf(event).was_ambiguous)
@@ -49,7 +59,7 @@ export function ClinicalNlpPage() {
   }, [events, reviewRequiredEvents, addedEvents, selectedEntity, showAllFindings])
   const validEvents = nlpComplete ? events.filter((event) => event.validation_status === 'valid') : []
   const readyForMemory = Boolean(nlpComplete && pendingAbbreviationEvents.length === 0 && reviewRequiredEvents.length === 0)
-  const nlpProcessing = Boolean(sourceData && pendingAbbreviationEvents.length === 0 && !nlpComplete && !nlpProcess.isError)
+  const nlpProcessing = Boolean(step1Output?.processing_status === 'complete' && !nlpComplete && !nlpProcess.isError)
   const sourceText = sourceEvents.map((event) => event.original_text).join(' · ')
   const processedText = events.map((event) => interpretationCorrections[event.event_local_id] ?? event.processed_text).join(' · ')
   const reviewText = reviewRequiredEvents.length === 0 ? 'No findings require your review' : `${reviewRequiredEvents.length} ${reviewRequiredEvents.length === 1 ? 'finding needs' : 'findings need'} your review`
@@ -126,7 +136,7 @@ export function ClinicalNlpPage() {
   }
 
   return <div className="page-stack">
-    <div className="page-heading"><div><p className="eyebrow">CLINICAL ANALYSIS</p><h1>Clinical intelligence</h1><p className="page-subtitle">Review extracted information, clinical findings, and safety checks before opening patient memory.</p></div><div className="nlp-job-meta"><span className="live-dot" /><div><strong>{nlpProcessing ? 'NLP processing' : nlpProcess.isError ? 'NLP processing unavailable' : nlpComplete ? 'Analysis complete' : 'Loading analysis'}</strong><span>{nlpData?.processed_at ? `Processed ${new Date(nlpData.processed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) }` : nlpProcessing ? 'Entity extraction and clinical context in progress' : 'Loading abbreviation review'}</span></div></div></div>
+    <div className="page-heading"><div><p className="eyebrow">CLINICAL ANALYSIS</p><h1>Clinical intelligence</h1><p className="page-subtitle">Review extracted information, clinical findings, and safety checks before opening patient memory.</p></div><div className="nlp-job-meta"><span className="live-dot" /><div><strong>{step1NeedsVerification ? 'Step 1 review required' : step1Failed ? 'Input processing failed' : nlpProcessing ? 'NLP processing' : nlpProcess.isError ? 'NLP processing unavailable' : nlpComplete ? 'Analysis complete' : 'Loading analysis'}</strong><span>{nlpData?.processed_at ? `Processed ${new Date(nlpData.processed_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) }` : step1NeedsVerification ? 'Verify extracted information before clinical analysis can start' : nlpProcessing ? 'Entity extraction and clinical context in progress' : 'Loading abbreviation review'}</span></div></div></div>
     <WorkflowProgress detail />
     <div className="clinical-context-strip"><span>Patient <strong>{sourceData?.patient_id ?? workflow.patient_id}</strong></span><span>Encounter <strong>{sourceData?.encounter_id ?? workflow.encounter_id}</strong></span><span>Document <strong>{sourceData?.source_document_id ?? workflow.document_id}</strong></span></div>
 
@@ -137,7 +147,7 @@ export function ClinicalNlpPage() {
 
     <AbbreviationReview events={ambiguousEvents} loading={isLoading} resolutions={abbreviationResolutions} interpretations={interpretationCorrections} onUseSuggestion={useSuggestion} onEditInterpretation={openInterpretationEditor} />
 
-    {!nlpComplete ? <ClinicalFindingsGate abbreviationReady={pendingAbbreviationEvents.length === 0} processing={nlpProcessing} error={nlpProcess.isError} /> : <SectionCard title="Clinical findings" eyebrow={reviewText.toUpperCase()} action={<div className="event-tools"><div className="search-box"><SearchIcon /><input placeholder="Search findings" aria-label="Search clinical findings" /></div><button className="clear-filter" onClick={() => setSelectedEntity('All')}>{selectedEntity === 'All' ? 'All finding types' : displayEntityType(selectedEntity)} ⌄</button></div>}>
+    {!nlpComplete ? <ClinicalFindingsGate abbreviationReady={pendingAbbreviationEvents.length === 0} processing={nlpProcessing} error={nlpProcess.isError || step1Failed} errorMessage={nlpErrorMessage} step1NeedsVerification={step1NeedsVerification} /> : <SectionCard title="Clinical findings" eyebrow={reviewText.toUpperCase()} action={<div className="event-tools"><div className="search-box"><SearchIcon /><input placeholder="Search findings" aria-label="Search clinical findings" /></div><button className="clear-filter" onClick={() => setSelectedEntity('All')}>{selectedEntity === 'All' ? 'All finding types' : displayEntityType(selectedEntity)} ⌄</button></div>}>
       <p className="findings-subtitle">Review the clinical findings identified from the processed information.</p><p className="findings-review-count">{reviewText}</p><div className="entity-filter-row">{entityTypes.map((type) => <button key={type} onClick={() => setSelectedEntity(type)} className={selectedEntity === type ? 'entity-filter active' : 'entity-filter'}>{type === 'LabFinding' ? 'Laboratory finding' : type === 'All' ? 'All findings' : type}</button>)}</div>{filteredEvents.length > 0 ? <div className="clinical-event-list">{filteredEvents.map((event) => <ClinicalEventCard key={event.event_local_id} event={event} onProvenance={setSelectedEvent} onApprove={(finding) => openReviewAction('add', finding)} onReject={(finding) => openReviewAction('reject', finding)} onUseSuggestion={useSuggestion} onEditInterpretation={openInterpretationEditor} interpretation={interpretationCorrections[event.event_local_id]} interpretationResolution={abbreviationResolutions[event.event_local_id]} resolution={resolutions[event.event_local_id]} actionPending={actionPending} />)}</div> : <div className="empty-loading">All findings reviewed</div>}<button className="clinical-findings-toggle" aria-expanded={showAllFindings} onClick={() => { setShowAllFindings((current) => !current); if (!showAllFindings) setSelectedEntity('All') }}>{showAllFindings ? 'Hide additional findings' : 'View all clinical findings'} <ArrowIcon /></button>
     </SectionCard>}
 
@@ -155,9 +165,24 @@ function AbbreviationReview({ events, loading, resolutions, interpretations, onU
   return <SectionCard title="Abbreviation review" eyebrow="REVIEW BEFORE CLINICAL FINDINGS" action={<span className="review-heading"><AlertIcon /> {pendingCount} to review</span>} className="abbreviation-review-card"><p className="abbreviation-review-subtitle">Confirm ambiguous abbreviations before reviewing the clinical findings.</p>{loading ? <div className="empty-loading">Loading abbreviation review…</div> : events.length === 0 ? <div className="empty-loading">No ambiguous abbreviations identified.</div> : <div className="abbreviation-review-list">{events.map((event) => { const abbreviation = abbreviationOf(event); const interpretation = interpretations[event.event_local_id] ?? abbreviation.resolved_value ?? event.processed_text; const resolution = resolutions[event.event_local_id]; return <article className="abbreviation-review-item" key={event.event_local_id}><div className="abbreviation-review-copy"><span className="event-label">Original</span><strong>{event.original_text}</strong><span className="event-label">Suggested interpretation</span><p>{interpretation}</p><span className="event-label">Confidence</span><p>{formatConfidence(abbreviation.resolution_confidence)}</p><small>Source text is preserved · {event.source_document_id}</small></div><div className="abbreviation-review-actions">{resolution && <span className={`abbreviation-resolution ${resolution}`}><CheckIcon /> Physician {resolution}</span>}{!resolution && abbreviation.resolved_value && <button className="suggestion-button" onClick={() => onUseSuggestion(event)}>Use suggestion</button>}<button className="interpretation-edit-button" onClick={() => onEditInterpretation(event)}>Edit interpretation</button></div></article> })}</div>}</SectionCard>
 }
 
-function ClinicalFindingsGate({ abbreviationReady, processing, error }: { abbreviationReady: boolean; processing: boolean; error: boolean }) {
-  const message = error ? 'NLP processing could not be completed. Clinical findings remain unavailable.' : abbreviationReady && processing ? 'NLP processing is in progress. Clinical findings will appear after entity extraction and clinical context are complete.' : 'Complete abbreviation review before clinical findings can be generated.'
-  return <SectionCard title="Clinical findings" eyebrow={error ? 'PROCESSING ERROR' : abbreviationReady ? 'NLP PROCESSING' : 'WAITING FOR ABBREVIATION REVIEW'} action={<span className="high-risk-label"><AlertIcon /> {error ? 'Unavailable' : 'Waiting'}</span>}><div className="clinical-findings-gate" role="status"><strong>{error ? 'Clinical findings are not ready yet' : abbreviationReady && processing ? 'Clinical findings are being generated' : 'Clinical findings are not ready yet'}</strong><p>{message}</p><small>Findings are not displayed until abbreviation review and NLP processing are complete.</small></div></SectionCard>
+function ClinicalFindingsGate({ abbreviationReady, processing, error, errorMessage, step1NeedsVerification }: { abbreviationReady: boolean; processing: boolean; error: boolean; errorMessage?: string; step1NeedsVerification?: boolean }) {
+  const message = step1NeedsVerification ? 'Step 1 found information that needs physician verification before Clinical NLP can start.' : error ? (errorMessage || 'NLP processing could not be completed. Clinical findings remain unavailable.') : abbreviationReady && processing ? 'NLP processing is in progress. Clinical findings will appear after entity extraction and clinical context are complete.' : 'Complete abbreviation review before clinical findings can be generated.'
+  return <SectionCard title="Clinical findings" eyebrow={step1NeedsVerification ? 'STEP 1 REVIEW REQUIRED' : error ? 'PROCESSING ERROR' : abbreviationReady ? 'NLP PROCESSING' : 'WAITING FOR ABBREVIATION REVIEW'} action={<span className="high-risk-label"><AlertIcon /> {step1NeedsVerification || error ? 'Review required' : 'Waiting'}</span>}><div className="clinical-findings-gate" role="status"><strong>{step1NeedsVerification ? 'Verify extracted information first' : error ? 'Clinical findings are not ready yet' : abbreviationReady && processing ? 'Clinical findings are being generated' : 'Clinical findings are not ready yet'}</strong><p>{message}</p>{step1NeedsVerification && <Link className="text-link" to="/verification">Open verification review <ArrowIcon /></Link>}<small>Findings are not displayed until abbreviation review and NLP processing are complete.</small></div></SectionCard>
+}
+
+function formatNlpError(error: unknown): string {
+  if (error instanceof ApiError) {
+    const validationErrors = error.details.errors ?? error.details.validation_errors
+    if (Array.isArray(validationErrors)) {
+      const messages = validationErrors
+        .filter((item): item is { msg?: unknown } => Boolean(item && typeof item === 'object'))
+        .map((item) => typeof item.msg === 'string' ? item.msg : '')
+        .filter(Boolean)
+      if (messages.length > 0) return messages.join(' · ')
+    }
+    return error.trace_id ? `${error.message} (request ${error.trace_id})` : error.message
+  }
+  return error instanceof Error ? error.message : 'NLP processing could not be completed. Clinical findings remain unavailable.'
 }
 
 function NlpProcessingState({ error }: { error: boolean }) {

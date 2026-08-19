@@ -13,7 +13,9 @@ class Step1InputError(ValueError):
 
 
 class ClinicalNLPProcessingError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, cause_type: str = "unknown") -> None:
+        super().__init__(message)
+        self.cause_type = cause_type
 
 
 class ClinicalEventBatchNotFoundError(LookupError):
@@ -50,7 +52,12 @@ class ClinicalNLPService:
         except ClinicalEventValidationError as exc:
             raise Step1InputError(str(exc)) from exc
         except Exception as exc:
-            raise ClinicalNLPProcessingError(str(exc)) from exc
+            # Keep provider/model details out of the API response while
+            # retaining a safe diagnostic category for the gateway logs.
+            raise ClinicalNLPProcessingError(
+                "Clinical NLP processing failed.",
+                cause_type=type(exc).__name__,
+            ) from exc
 
         batch = ClinicalEventBatch(
             clinical_events=events,

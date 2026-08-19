@@ -45,10 +45,11 @@ class MemoryEvent(BaseModel):
 class MemoryWriteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    patient_id: UUID
+    patient_id: UUID | str
     encounter_id: UUID
     source: MemorySource
     clinical_events: list[ClinicalEvent] = Field(min_length=1)
+    actor_id: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class WrittenMemoryEvent(BaseModel):

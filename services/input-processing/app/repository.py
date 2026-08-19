@@ -6,11 +6,18 @@ from contracts.schemas import Step1Output
 from services.object_storage import StoredObject
 
 
+class EncounterPatientMismatchError(ValueError):
+    """Raised when an existing encounter belongs to another patient."""
+
+
 class DocumentRepository(Protocol):
     def save(self, output: Step1Output) -> Step1Output:
         ...
 
     def get(self, document_id: UUID) -> Step1Output | None:
+        ...
+
+    def validate_encounter(self, *, patient_id: UUID, encounter_id: UUID) -> None:
         ...
 
     def record_source_object(self, document_id: UUID, stored: StoredObject) -> None:
@@ -42,6 +49,9 @@ class InMemoryDocumentRepository:
         with self._lock:
             return self._documents.get(document_id)
 
+    def validate_encounter(self, *, patient_id: UUID, encounter_id: UUID) -> None:
+        return None
+
     def record_source_object(self, document_id: UUID, stored: StoredObject) -> None:
         with self._lock:
             self._source_objects[document_id] = stored
@@ -58,9 +68,26 @@ class SqlAlchemyDocumentRepository:
         self.db = db
 
     def save(self, output: Step1Output) -> Step1Output:
-        from database.models import DocumentRecord, ExtractionResult, ProcessingJob
+        from database.models import DocumentRecord, Encounter, ExtractionResult, ProcessingJob
 
         try:
+            encounter = self.db.query(Encounter).filter(Encounter.id == output.encounter_id).first()
+            if encounter is None:
+                self.db.add(
+                    Encounter(
+                        id=output.encounter_id,
+                        patient_id=output.patient_id,
+                        status="active",
+                    )
+                )
+                # There are intentionally no ORM relationships on the shared
+                # foundation models; flush the parent explicitly before the
+                # document row is inserted to satisfy the FK in PostgreSQL.
+                self.db.flush()
+            elif encounter.patient_id != output.patient_id:
+                raise EncounterPatientMismatchError(
+                    "Encounter does not belong to the requested patient."
+                )
             document = (
                 self.db.query(DocumentRecord)
                 .filter(DocumentRecord.id == output.document_id)
@@ -135,6 +162,15 @@ class SqlAlchemyDocumentRepository:
             self.db.rollback()
             raise
 
+    def validate_encounter(self, *, patient_id: UUID, encounter_id: UUID) -> None:
+        from database.models import Encounter
+
+        encounter = self.db.query(Encounter).filter(Encounter.id == encounter_id).first()
+        if encounter is not None and encounter.patient_id != patient_id:
+            raise EncounterPatientMismatchError(
+                "Encounter does not belong to the requested patient."
+            )
+
     def get(self, document_id: UUID) -> Step1Output | None:
         from database.models import ExtractionResult
 
@@ -187,3 +223,42 @@ class SqlAlchemyDocumentRepository:
             size_bytes=0,
             checksum_sha256="",
         )
+
+
+class SessionScopedSqlAlchemyDocumentRepository:
+    """Open a short-lived database session for each repository operation."""
+
+    def __init__(self, session_factory) -> None:
+        self.session_factory = session_factory
+
+    def save(self, output: Step1Output) -> Step1Output:
+        with self.session_factory() as db:
+            return SqlAlchemyDocumentRepository(db).save(output)
+
+    def get(self, document_id: UUID) -> Step1Output | None:
+        with self.session_factory() as db:
+            return SqlAlchemyDocumentRepository(db).get(document_id)
+
+    def validate_encounter(self, *, patient_id: UUID, encounter_id: UUID) -> None:
+        with self.session_factory() as db:
+            SqlAlchemyDocumentRepository(db).validate_encounter(
+                patient_id=patient_id,
+                encounter_id=encounter_id,
+            )
+
+    def record_source_object(self, document_id: UUID, stored: StoredObject) -> None:
+        with self.session_factory() as db:
+            SqlAlchemyDocumentRepository(db).record_source_object(document_id, stored)
+
+    def get_source_object(self, document_id: UUID) -> StoredObject | None:
+        with self.session_factory() as db:
+            return SqlAlchemyDocumentRepository(db).get_source_object(document_id)
+
+
+__all__ = [
+    "DocumentRepository",
+    "EncounterPatientMismatchError",
+    "InMemoryDocumentRepository",
+    "SessionScopedSqlAlchemyDocumentRepository",
+    "SqlAlchemyDocumentRepository",
+]

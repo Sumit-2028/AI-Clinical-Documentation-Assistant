@@ -2,10 +2,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getStep2Job, processStep2 } from '../api'
 import type { Step2ProcessRequest } from '../api/pipeline'
 
-export function useClinicalNlpOutput(documentId?: string) {
+export function useClinicalNlpOutput(documentId?: string, enabled = true) {
   const resolvedDocumentId = documentId ?? (import.meta.env.MODE === 'test' ? 'job_nlp_412' : undefined)
   const queryKey = import.meta.env.MODE === 'test' ? ['step2-clinical-nlp'] : ['step2-clinical-nlp', resolvedDocumentId]
-  return useQuery({ queryKey, queryFn: () => getStep2Job(resolvedDocumentId), enabled: Boolean(resolvedDocumentId) })
+  return useQuery({
+    queryKey,
+    queryFn: () => getStep2Job(resolvedDocumentId),
+    enabled: Boolean(resolvedDocumentId) && enabled,
+    retry: false,
+  })
 }
 
 export function useProcessClinicalNlp() {

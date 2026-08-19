@@ -19,7 +19,7 @@ Registration accepts:
 
 Public roles are limited to `physician` and `patient`. Admin, reviewer, and nurse accounts cannot be self-created. Emails are trimmed, lower-cased, checked case-insensitively, and protected by a PostgreSQL unique expression index. Passwords are stored only as secure bcrypt hashes.
 
-Patient registration creates one durable `patients` row and returns its UUID as `patient_id`. The `patients.user_id` relationship is unique and survives login, profile changes, and backend restarts. Physician registration does not create a patient profile.
+Patient registration creates one durable `patients` row and returns a backend-generated, numeric 6–8 digit `patient_id`. The internal patient primary key remains UUID-based, while `public_patient_id` is unique and indexed in PostgreSQL. The `patients.user_id` relationship is unique and survives login, profile changes, and backend restarts. Physician registration does not create a patient profile.
 
 Registration and the patient-profile creation run in one transaction. A duplicate email returns `409`; invalid input or a privileged self-registration attempt is rejected by schema validation.
 
@@ -43,7 +43,7 @@ The React client keeps the access token in memory and the refresh token in sessi
 
 Existing roles are preserved: `admin`, `physician`, `reviewer`, `nurse`, and `patient`. RBAC permissions remain defined in `services/gateway/app/auth/rbac.py`.
 
-Physicians create a patient with `POST /api/v1/patients`. The backend creates the UUID and a persistent active `patient_assignments` row linking the physician to that patient. An admin may assign an existing patient to an active physician with `POST /api/v1/patients/{patient_id}/assignments`.
+Physicians create a patient with `POST /api/v1/patients`. The backend creates the numeric public ID and a persistent active `patient_assignments` row linking the physician to that patient. An admin may assign an existing patient to an active physician with `POST /api/v1/patients/{patient_id}/assignments`.
 
 `GET /api/v1/patients/{patient_id}` requires authentication and checks the server-side relationship. Patient accounts can access only their own linked profile; physicians and staff require an active assignment; admins can access all patients. The same access policy is applied by the gateway before pipeline resources are accessed, including documents, memory, conflicts, and generated documentation. A client-supplied `patient_id` cannot grant access.
 
@@ -63,6 +63,7 @@ Migrations:
 - `20260817_0001_backend_foundation`
 - `20260818_0002_auth_patient_identity`
 - `20260818_0003_case_insensitive_user_email`
+- `20260818_0004_public_patient_identifier`
 
 Apply them with:
 
@@ -116,4 +117,4 @@ The PostgreSQL integration test creates unique temporary accounts, verifies regi
 
 - Physician-to-patient assignment is currently created by the physician who creates a patient or by an admin assignment request; there is no separate invitation workflow.
 - Access tokens are held in browser memory and refresh tokens in session storage. A production deployment may choose an HttpOnly cookie strategy without changing the backend identity model.
-- Existing pipeline repositories remain in-process/in-memory for the local MVP; this auth change protects their gateway routes using the durable PostgreSQL identity and assignment tables.
+- The gateway selects request-scoped SQLAlchemy repositories/stores by default when `CLINICAL_PIPELINE_PERSISTENCE=true` (the default). In-memory repositories are retained for isolated service tests and can be explicitly selected for local test-only runs with `CLINICAL_PIPELINE_PERSISTENCE=false`.

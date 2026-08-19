@@ -109,4 +109,4 @@ components:
         full_name: {type: string}
         role: {type: string}
         is_active: {type: boolean}
-        patient_id: {type: string, format: uuid, nullable: true}
+        patient_id: {type: string, pattern: '^[0-9]{6,8}$', nullable: true}

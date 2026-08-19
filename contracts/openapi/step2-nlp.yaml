@@ -53,8 +53,11 @@ components:
           type: string
           format: uuid
         patient_id:
-          type: string
-          format: uuid
+          oneOf:
+            - type: string
+              pattern: '^[0-9]{6,8}$'
+            - type: string
+              format: uuid
         encounter_id:
           type: string
           format: uuid

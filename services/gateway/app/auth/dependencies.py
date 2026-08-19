@@ -18,6 +18,7 @@ from .security import (
 from ..patients.service import (
     PatientAccessDeniedError,
     PatientNotFoundError,
+    get_patient_by_identifier,
     require_patient_access,
 )
 
@@ -120,22 +121,28 @@ require_role = require_roles
 require_permission = require_permissions
 
 
-async def _patient_id_from_request(request: Request) -> UUID | None:
+def _resolve_patient_identifier(db: Session, raw_patient_id: str | None) -> UUID | None:
+    if raw_patient_id is None:
+        return None
+    try:
+        return UUID(str(raw_patient_id))
+    except ValueError:
+        try:
+            return get_patient_by_identifier(db, str(raw_patient_id)).id
+        except PatientNotFoundError:
+            return None
+
+
+async def _patient_id_from_request(request: Request, db: Session) -> UUID | None:
     """Extract a patient identity without trusting frontend-only state."""
 
     path_patient_id = request.path_params.get("patient_id")
     if path_patient_id:
-        try:
-            return UUID(str(path_patient_id))
-        except ValueError:
-            return None
+        return _resolve_patient_identifier(db, str(path_patient_id))
 
     query_patient_id = request.query_params.get("patient_id")
     if query_patient_id:
-        try:
-            return UUID(query_patient_id)
-        except ValueError:
-            return None
+        return _resolve_patient_identifier(db, query_patient_id)
 
     content_type = request.headers.get("content-type", "").casefold()
     if request.method.upper() not in {"POST", "PUT", "PATCH"}:
@@ -156,10 +163,7 @@ async def _patient_id_from_request(request: Request) -> UUID | None:
 
     if raw_patient_id is None:
         return None
-    try:
-        return UUID(str(raw_patient_id))
-    except ValueError:
-        return None
+    return _resolve_patient_identifier(db, str(raw_patient_id))
 
 
 def _patient_id_from_resource(request: Request) -> UUID | None:
@@ -204,8 +208,8 @@ def _patient_id_from_resource(request: Request) -> UUID | None:
     return None
 
 
-async def _resolve_pipeline_patient_id(request: Request) -> UUID | None:
-    return await _patient_id_from_request(request) or _patient_id_from_resource(request)
+async def _resolve_pipeline_patient_id(request: Request, db: Session) -> UUID | None:
+    return await _patient_id_from_request(request, db) or _patient_id_from_resource(request)
 
 
 async def require_pipeline_access(
@@ -225,13 +229,16 @@ async def require_pipeline_access(
 
     path = request.url.path
     method = request.method.upper()
+    request.state.current_user_id = str(current_user.id)
     required_permission = _pipeline_permission(path, method)
     if required_permission is None:
         return current_user
     if not has_permission(current_user, required_permission):
         raise _forbidden("Required permission is missing.")
 
-    patient_id = await _resolve_pipeline_patient_id(request)
+    patient_id = await _resolve_pipeline_patient_id(request, db)
+    if patient_id is not None:
+        request.state.internal_patient_id = patient_id
     if patient_id is None:
         if path.endswith("/step3/conflicts") and method == "GET" and current_user.role != "admin":
             raise _forbidden("A patient_id filter is required for conflict access.")

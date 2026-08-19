@@ -95,3 +95,26 @@ class SqlAlchemyClinicalEventRepository:
             source_document_id=document_id,
             processed_at=datetime.now(timezone.utc),
         )
+
+
+class SessionScopedSqlAlchemyClinicalEventRepository:
+    """Durable Step 2 repository with request-scoped SQLAlchemy sessions."""
+
+    def __init__(self, session_factory) -> None:
+        self.session_factory = session_factory
+
+    def save(self, batch: ClinicalEventBatch) -> ClinicalEventBatch:
+        with self.session_factory() as db:
+            return SqlAlchemyClinicalEventRepository(db).save(batch)
+
+    def get(self, document_id: UUID) -> ClinicalEventBatch | None:
+        with self.session_factory() as db:
+            return SqlAlchemyClinicalEventRepository(db).get(document_id)
+
+
+__all__ = [
+    "ClinicalEventRepository",
+    "InMemoryClinicalEventRepository",
+    "SessionScopedSqlAlchemyClinicalEventRepository",
+    "SqlAlchemyClinicalEventRepository",
+]

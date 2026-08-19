@@ -1,11 +1,29 @@
-from .base import EntitySpan, NERAdapter
+"""Person B's NER stage — hybrid scispaCy + bc5cdr + regex + dictionary."""
+
+from .base import (
+    EXTRACTION_SOURCE_BC5CDR,
+    EXTRACTION_SOURCE_DICTIONARY,
+    EXTRACTION_SOURCE_MOCK,
+    EXTRACTION_SOURCE_REGEX,
+    EXTRACTION_SOURCE_SCI,
+    EntitySpan,
+    NERAdapter,
+)
+from .bioclinicalbert import BioClinicalBERTNERAdapter
+from .hybrid import HybridNERAdapter, NLPModelUnavailableError, split_sentences
 from .mock import MockClinicalNERAdapter
-from .production import BioClinicalBERTNERAdapter, NLPModelUnavailableError
 
 __all__ = [
-    "BioClinicalBERTNERAdapter",
     "EntitySpan",
+    "BioClinicalBERTNERAdapter",
+    "EXTRACTION_SOURCE_BC5CDR",
+    "EXTRACTION_SOURCE_DICTIONARY",
+    "EXTRACTION_SOURCE_MOCK",
+    "EXTRACTION_SOURCE_REGEX",
+    "EXTRACTION_SOURCE_SCI",
+    "HybridNERAdapter",
     "MockClinicalNERAdapter",
     "NERAdapter",
     "NLPModelUnavailableError",
+    "split_sentences",
 ]

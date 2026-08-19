@@ -9,7 +9,7 @@ from .contextualization import (
     ProductionGeminiContextualizationAdapter,
 )
 from .ner import (
-    BioClinicalBERTNERAdapter,
+    HybridNERAdapter,
     MockClinicalNERAdapter,
     NERAdapter,
 )
@@ -30,10 +30,7 @@ def build_adapter_bundle(mode: str | None = None) -> NLPAdapterBundle:
         )
 
     return NLPAdapterBundle(
-        ner=BioClinicalBERTNERAdapter(
-            model_name=os.getenv("BIOCLINICALBERT_MODEL_NAME"),
-            model_path=os.getenv("BIOCLINICALBERT_MODEL_PATH"),
-        ),
+            ner=HybridNERAdapter(strict_models=True),
         contextualization=ProductionGeminiContextualizationAdapter(
             api_key=os.getenv("GEMINI_API_KEY"),
             model_name=os.getenv("GEMINI_MODEL"),

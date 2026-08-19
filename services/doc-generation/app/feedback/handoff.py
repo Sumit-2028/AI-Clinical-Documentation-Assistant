@@ -37,12 +37,13 @@ class HttpMemoryWriteClient:
         return json.loads(body.decode("utf-8")) if body else None
 
 
-def build_memory_write_payload(request) -> MemoryWriteRequest:
+def build_memory_write_payload(request, *, actor_id: str | None = None) -> MemoryWriteRequest:
     return MemoryWriteRequest(
         patient_id=request.patient_id,
         encounter_id=request.encounter_id,
         source=MemorySource.PHYSICIAN_APPROVED_CONSULTATION,
         clinical_events=list(request.current_consultation_events),
+        actor_id=actor_id,
     )
 
 

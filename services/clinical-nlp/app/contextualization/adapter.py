@@ -4,7 +4,6 @@ import json
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
-from urllib.parse import quote
 
 from services.ai_adapters import (
     AIProviderError,
@@ -92,8 +91,7 @@ class ProductionGeminiContextualizationAdapter:
             )
 
         endpoint = self.endpoint or (
-            f"{self.base_url}/models/{quote(self.model_name, safe='')}:generateContent"
-            f"?key={quote(self.api_key, safe='')}"
+            f"{self.base_url}/models/{self.model_name}:generateContent"
         )
         response = self.http_client.post_json(
             endpoint,
@@ -111,6 +109,7 @@ class ProductionGeminiContextualizationAdapter:
             },
             provider=self.model_name,
             operation="clinical_contextualization",
+            headers={"x-goog-api-key": self.api_key},
         )
         content = _gemini_text(response)
         try:

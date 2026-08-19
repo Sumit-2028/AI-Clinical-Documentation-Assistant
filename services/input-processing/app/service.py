@@ -17,6 +17,7 @@ from .audit import AuditLogger, InMemoryAuditLogger
 from .confidence import ConfidenceScorer, decide_confidence_gate
 from .gating.service import apply_document_gate, replace_field
 from .preprocessing import (
+    DocumentTextExtractionError,
     decode_uploaded_text,
     is_high_risk,
     normalize_text,
@@ -24,7 +25,11 @@ from .preprocessing import (
 )
 from services.object_storage import StoredObject
 
-from .repository import DocumentRepository, InMemoryDocumentRepository
+from .repository import (
+    DocumentRepository,
+    EncounterPatientMismatchError,
+    InMemoryDocumentRepository,
+)
 
 
 class DocumentNotFoundError(LookupError):
@@ -33,6 +38,10 @@ class DocumentNotFoundError(LookupError):
 
 class FieldNotFoundError(LookupError):
     pass
+
+
+class InputDocumentError(ValueError):
+    """Raised when an uploaded document cannot be processed safely."""
 
 
 @dataclass(frozen=True)
@@ -90,19 +99,24 @@ class InputProcessingService:
         encounter_id: UUID,
         content: bytes,
         filename: str | None = None,
+        actor_id: str | None = None,
         document_id: UUID | None = None,
         source_object: StoredObject | None = None,
     ) -> Step1Output:
+        self.repository.validate_encounter(
+            patient_id=patient_id,
+            encounter_id=encounter_id,
+        )
         document_id = document_id or uuid4()
-        self._record_source_object(document_id, source_object)
         audit_event = self.audit_logger.record(
             document_id,
             "step1.processing_started",
+            actor_id=actor_id,
             details={"input_modality": InputModality.TYPED.value},
         )
 
         try:
-            text = decode_uploaded_text(content)
+            text = decode_uploaded_text(content, filename=filename)
             run = ExtractionRun(text=text, confidence=0.97)
             return self._complete_run(
                 document_id=document_id,
@@ -116,7 +130,28 @@ class InputProcessingService:
                 run=run,
                 ocr_engine_used=None,
                 vlm_model_used=None,
+                actor_id=actor_id,
+                source_object=source_object,
             )
+        except DocumentTextExtractionError as exc:
+            self._failed_output(
+                document_id=document_id,
+                audit_log_id=audit_event.audit_log_id,
+                patient_id=patient_id,
+                encounter_id=encounter_id,
+                modality=InputModality.TYPED,
+                source_language="en",
+                original_language_text=None,
+                translation_confidence=1.0,
+                ocr_engine_used=None,
+                vlm_model_used=None,
+                error=exc,
+                actor_id=actor_id,
+                source_object=source_object,
+            )
+            raise InputDocumentError(str(exc)) from exc
+        except EncounterPatientMismatchError:
+            raise
         except Exception as exc:
             return self._failed_output(
                 document_id=document_id,
@@ -130,6 +165,8 @@ class InputProcessingService:
                 ocr_engine_used=None,
                 vlm_model_used=None,
                 error=exc,
+                actor_id=actor_id,
+                source_object=source_object,
             )
 
     def process_handwritten(
@@ -139,14 +176,19 @@ class InputProcessingService:
         encounter_id: UUID,
         content: bytes,
         filename: str | None = None,
+        actor_id: str | None = None,
         document_id: UUID | None = None,
         source_object: StoredObject | None = None,
     ) -> Step1Output:
+        self.repository.validate_encounter(
+            patient_id=patient_id,
+            encounter_id=encounter_id,
+        )
         document_id = document_id or uuid4()
-        self._record_source_object(document_id, source_object)
         audit_event = self.audit_logger.record(
             document_id,
             "step1.processing_started",
+            actor_id=actor_id,
             details={"input_modality": InputModality.HANDWRITTEN.value},
         )
 
@@ -196,6 +238,8 @@ class InputProcessingService:
                 run=dual_run,
                 ocr_engine_used=ocr_result.engine,
                 vlm_model_used=vlm_result.model if vlm_result else None,
+                actor_id=actor_id,
+                source_object=source_object,
             )
         except Exception as exc:
             return self._failed_output(
@@ -210,6 +254,8 @@ class InputProcessingService:
                 ocr_engine_used=getattr(self.adapters.ocr, "engine_name", None),
                 vlm_model_used=getattr(self.adapters.vlm, "model_name", None),
                 error=exc,
+                actor_id=actor_id,
+                source_object=source_object,
             )
 
     def process_multilingual(
@@ -219,11 +265,20 @@ class InputProcessingService:
         encounter_id: UUID,
         text_input: str,
         source_language: str,
+        actor_id: str | None = None,
     ) -> Step1Output:
+        # Multilingual input arrives as text, so there is no uploaded file to
+        # associate with the document.
+        source_object: StoredObject | None = None
+        self.repository.validate_encounter(
+            patient_id=patient_id,
+            encounter_id=encounter_id,
+        )
         document_id = uuid4()
         audit_event = self.audit_logger.record(
             document_id,
             "step1.processing_started",
+            actor_id=actor_id,
             details={
                 "input_modality": InputModality.MULTILINGUAL.value,
                 "source_language": source_language,
@@ -252,6 +307,8 @@ class InputProcessingService:
                 run=run,
                 ocr_engine_used=None,
                 vlm_model_used=None,
+                actor_id=actor_id,
+                source_object=source_object,
             )
         except Exception as exc:
             return self._failed_output(
@@ -266,6 +323,8 @@ class InputProcessingService:
                 ocr_engine_used=None,
                 vlm_model_used=None,
                 error=exc,
+                actor_id=actor_id,
+                source_object=source_object,
             )
 
     def get_document(self, document_id: UUID) -> Step1Output:
@@ -361,6 +420,8 @@ class InputProcessingService:
         run: ExtractionRun,
         ocr_engine_used: str | None,
         vlm_model_used: str | None,
+        actor_id: str | None,
+        source_object: StoredObject | None = None,
     ) -> Step1Output:
         candidates = split_into_candidate_fields(run.text)
         if not candidates:
@@ -419,9 +480,11 @@ class InputProcessingService:
             ),
         )
         self.repository.save(output)
+        self._record_source_object(output.document_id, source_object)
         self.audit_logger.record(
             document_id,
             "step1.processing_completed",
+            actor_id=actor_id,
             details={
                 "processing_status": output.processing_status.value,
                 "verification_state": output.verification_state.value,
@@ -443,6 +506,8 @@ class InputProcessingService:
         ocr_engine_used: str | None,
         vlm_model_used: str | None,
         error: Exception,
+        actor_id: str | None,
+        source_object: StoredObject | None = None,
     ) -> Step1Output:
         output = Step1Output(
             document_id=document_id,
@@ -461,9 +526,11 @@ class InputProcessingService:
             verification_state=VerificationState.NOT_REQUIRED,
         )
         self.repository.save(output)
+        self._record_source_object(output.document_id, source_object)
         self.audit_logger.record(
             document_id,
             "step1.processing_failed",
+            actor_id=actor_id,
             details={"error_type": type(error).__name__},
         )
         return output

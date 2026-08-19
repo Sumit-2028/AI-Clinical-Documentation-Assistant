@@ -21,8 +21,10 @@ from .schemas import (
 from .service import (
     DocumentNotFoundError,
     FieldNotFoundError,
+    InputDocumentError,
     InputProcessingService,
 )
+from .repository import EncounterPatientMismatchError
 from .upload_security import UploadSecurityError, read_validated_upload
 
 
@@ -66,9 +68,20 @@ def _store_source_document(
         ) from exc
 
 
+def _internal_patient_id(raw_patient_id, request: Request) -> UUID:
+    resolved = getattr(request.state, "internal_patient_id", None)
+    if resolved is not None:
+        return resolved
+    try:
+        return UUID(str(raw_patient_id))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="A valid patient identifier is required.") from exc
+
+
 @router.post("/typed", response_model=Step1Output)
 async def process_typed_document(
-    patient_id: UUID = Form(...),
+    http_request: Request,
+    patient_id: str = Form(...),
     encounter_id: UUID = Form(...),
     file: UploadFile = File(...),
     service: InputProcessingService = Depends(get_step1_service),
@@ -79,27 +92,37 @@ async def process_typed_document(
     except UploadSecurityError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
+    # Resolve the internal identifier before building the key: retrieval derives
+    # the same key from the same internal id, so the two must agree.
+    internal_patient_id = _internal_patient_id(patient_id, http_request)
     document_id = uuid4()
     stored = _store_source_document(
         storage,
-        patient_id=patient_id,
+        patient_id=internal_patient_id,
         document_id=document_id,
         content=upload.content,
         content_type=upload.content_type,
     )
-    return service.process_typed(
-        patient_id=patient_id,
-        encounter_id=encounter_id,
-        content=upload.content,
-        filename=upload.filename,
-        document_id=document_id,
-        source_object=stored,
-    )
+    try:
+        return service.process_typed(
+            patient_id=internal_patient_id,
+            encounter_id=encounter_id,
+            content=upload.content,
+            filename=upload.filename,
+            actor_id=getattr(http_request.state, "current_user_id", None),
+            document_id=document_id,
+            source_object=stored,
+        )
+    except InputDocumentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except EncounterPatientMismatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/handwritten", response_model=Step1Output)
 async def process_handwritten_document(
-    patient_id: UUID = Form(...),
+    http_request: Request,
+    patient_id: str = Form(...),
     encounter_id: UUID = Form(...),
     file: UploadFile = File(...),
     service: InputProcessingService = Depends(get_step1_service),
@@ -110,35 +133,45 @@ async def process_handwritten_document(
     except UploadSecurityError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
+    internal_patient_id = _internal_patient_id(patient_id, http_request)
     document_id = uuid4()
     stored = _store_source_document(
         storage,
-        patient_id=patient_id,
+        patient_id=internal_patient_id,
         document_id=document_id,
         content=upload.content,
         content_type=upload.content_type,
     )
-    return service.process_handwritten(
-        patient_id=patient_id,
-        encounter_id=encounter_id,
-        content=upload.content,
-        filename=upload.filename,
-        document_id=document_id,
-        source_object=stored,
-    )
+    try:
+        return service.process_handwritten(
+            patient_id=internal_patient_id,
+            encounter_id=encounter_id,
+            content=upload.content,
+            filename=upload.filename,
+            actor_id=getattr(http_request.state, "current_user_id", None),
+            document_id=document_id,
+            source_object=stored,
+        )
+    except EncounterPatientMismatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/multilingual", response_model=Step1Output)
 def process_multilingual_document(
     request: MultilingualDocumentRequest,
+    http_request: Request,
     service: InputProcessingService = Depends(get_step1_service),
 ) -> Step1Output:
-    return service.process_multilingual(
-        patient_id=request.patient_id,
-        encounter_id=request.encounter_id,
-        text_input=request.text_input,
-        source_language=request.source_language,
-    )
+    try:
+        return service.process_multilingual(
+            patient_id=_internal_patient_id(request.patient_id, http_request),
+            encounter_id=request.encounter_id,
+            text_input=request.text_input,
+            source_language=request.source_language,
+            actor_id=getattr(http_request.state, "current_user_id", None),
+        )
+    except EncounterPatientMismatchError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{document_id}", response_model=Step1Output)
@@ -176,10 +209,13 @@ def get_document_source(
         raise HTTPException(status_code=404, detail="No stored source document.")
 
     try:
+        # A durable repository records only the storage URI, so the content
+        # type comes from the object store rather than the document row.
+        content_type = stored.content_type or storage.head(key=stored.key).content_type
         presigned = storage.presign_get(
             key=stored.key,
             expires_in=configured_presign_expiry(),
-            download_filename=download_filename(document_id, stored.content_type),
+            download_filename=download_filename(document_id, content_type),
         )
     except ObjectStorageNotFoundError as exc:
         raise HTTPException(
@@ -203,16 +239,17 @@ def get_document_source(
 @router.post("/{document_id}/human-verify", response_model=Step1Output)
 def human_verify_document(
     document_id: UUID,
-    request: HumanVerificationRequest,
+    payload: HumanVerificationRequest,
+    http_request: Request,
     service: InputProcessingService = Depends(get_step1_service),
 ) -> Step1Output:
     try:
         return service.human_verify(
             document_id=document_id,
-            field_id=request.field_id,
-            verified_text=request.verified_text,
-            reviewer_id=request.reviewer_id,
-            approved=request.approved,
+            field_id=payload.field_id,
+            verified_text=payload.verified_text,
+            reviewer_id=str(getattr(http_request.state, "current_user_id", payload.reviewer_id)),
+            approved=payload.approved,
         )
     except DocumentNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Document not found.") from exc

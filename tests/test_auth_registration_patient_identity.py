@@ -103,18 +103,20 @@ def test_patient_registration_hashes_password_and_returns_stable_patient_id():
 
     assert registered.status_code == 201
     body = registered.json()
-    patient_id = UUID(body["patient_id"])
+    patient_id = body["patient_id"]
+    assert patient_id.isdigit()
+    assert 6 <= len(patient_id) <= 8
     created_user = db.users[0]
     assert created_user.email == "patient@example.com"
     assert created_user.password_hash != "password123"
-    assert db.patients[0].id == patient_id
+    assert str(db.patients[0].public_patient_id) == patient_id
     assert db.patients[0].user_id == created_user.id
 
     headers = login(client, "patient@example.com")
     first_me = client.get("/api/v1/auth/me", headers=headers).json()
     second_me = client.get("/api/v1/auth/me", headers=headers).json()
-    assert first_me["patient_id"] == str(patient_id)
-    assert second_me["patient_id"] == str(patient_id)
+    assert first_me["patient_id"] == patient_id
+    assert second_me["patient_id"] == patient_id
     assert len({patient.id for patient in db.patients}) == 1
 
 

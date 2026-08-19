@@ -8,6 +8,7 @@ pydantic-settings
 python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
+pypdf
 email-validator
 pytest
 httpx

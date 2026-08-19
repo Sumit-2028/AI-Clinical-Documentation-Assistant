@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, String, func, text
+from sqlalchemy import Boolean, Column, DateTime, Index, String, func, text
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 
@@ -7,6 +7,9 @@ from database.models import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        Index("uq_users_email_lower", text("lower(email)"), unique=True),
+    )
 
     id = Column(
         UUID(as_uuid=True),

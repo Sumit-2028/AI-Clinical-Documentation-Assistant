@@ -100,8 +100,11 @@ components:
       required: [patient_id, encounter_id, file]
       properties:
         patient_id:
-          type: string
-          format: uuid
+          oneOf:
+            - type: string
+              pattern: '^[0-9]{6,8}$'
+            - type: string
+              format: uuid
         encounter_id:
           type: string
           format: uuid
@@ -113,8 +116,11 @@ components:
       required: [patient_id, encounter_id, text_input, source_language]
       properties:
         patient_id:
-          type: string
-          format: uuid
+          oneOf:
+            - type: string
+              pattern: '^[0-9]{6,8}$'
+            - type: string
+              format: uuid
         encounter_id:
           type: string
           format: uuid

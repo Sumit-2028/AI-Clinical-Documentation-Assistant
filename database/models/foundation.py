@@ -6,6 +6,8 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -42,8 +44,19 @@ class TimestampMixin:
 
 class Patient(Base, TimestampMixin):
     __tablename__ = "patients"
+    __table_args__ = (
+        Index(
+            "ix_patients_external_patient_ref",
+            "external_patient_ref",
+            unique=True,
+        ),
+    )
 
     id = uuid_pk_column()
+    # Internal UUIDs remain the relational primary key.  This is the stable,
+    # clinician-facing identifier used by the product and is deliberately
+    # independent from names, email addresses, and UUID implementation details.
+    public_patient_id = Column(Integer, nullable=False, unique=True, index=True)
     user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -51,7 +64,7 @@ class Patient(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
-    external_patient_ref = Column(String(255), unique=True, nullable=True)
+    external_patient_ref = Column(String(255), nullable=True)
     display_name = Column(String(255), nullable=True)
 
 

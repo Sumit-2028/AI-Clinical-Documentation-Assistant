@@ -10,10 +10,6 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgresql+psycopg2://postgres:postgres@localhost:5432/clinical_memory_security_test",
-)
 os.environ.setdefault("JWT_SECRET_KEY", "security-test-secret-value")
 os.environ.setdefault("JWT_ALGORITHM", "HS256")
 

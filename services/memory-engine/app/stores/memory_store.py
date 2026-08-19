@@ -478,3 +478,40 @@ class SqlAlchemyMemoryStore:
             action=action,
             created_at=datetime.now(timezone.utc),
         )
+
+
+class SessionScopedSqlAlchemyMemoryStore:
+    """Durable memory store facade using one short-lived session per call."""
+
+    _METHODS = {
+        "list_events",
+        "get_event",
+        "_append_event",
+        "list_threads",
+        "create_thread",
+        "update_thread",
+        "update_thread_trust",
+        "set_thread_current_event",
+        "get_current_state",
+        "list_conflicts",
+        "add_conflict",
+        "get_conflict",
+        "update_conflict",
+        "has_conflict_pair",
+        "record_tier_review",
+        "list_tier_reviews",
+        "record_conflict_resolution",
+    }
+
+    def __init__(self, session_factory) -> None:
+        self.session_factory = session_factory
+
+    def __getattr__(self, name):
+        if name not in self._METHODS:
+            raise AttributeError(name)
+
+        def invoke(*args, **kwargs):
+            with self.session_factory() as db:
+                return getattr(SqlAlchemyMemoryStore(db), name)(*args, **kwargs)
+
+        return invoke

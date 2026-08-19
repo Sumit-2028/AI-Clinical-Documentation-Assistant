@@ -37,6 +37,22 @@ def test_typed_endpoint_and_get_endpoint():
     assert get_response.json() == body
 
 
+def test_unreadable_pdf_returns_validation_error_instead_of_server_error():
+    client = make_client()
+
+    response = client.post(
+        "/api/v1/step1/documents/typed",
+        data={"patient_id": str(uuid4()), "encounter_id": str(uuid4())},
+        files={"file": ("scan.pdf", b"%PDF-1.4\n%%EOF", "application/pdf")},
+    )
+
+    assert response.status_code == 422
+    # The message depends on which parser handled it: pypdf rejects the
+    # envelope outright, the dependency-free fallback reports no text. Both are
+    # a client error rather than a 500, which is what this guards.
+    assert "PDF" in response.json()["detail"]
+
+
 def test_handwritten_endpoint_and_human_verification_endpoint():
     client = make_client()
     response = client.post(

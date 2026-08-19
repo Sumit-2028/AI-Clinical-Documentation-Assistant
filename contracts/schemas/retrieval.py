@@ -41,6 +41,6 @@ class RetrievedContext(BaseModel):
 class MemoryRetrieveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    patient_id: UUID
+    patient_id: UUID | str
     encounter_id: UUID
     query_concepts: list[str] = Field(default_factory=list)

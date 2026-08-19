@@ -59,12 +59,18 @@ class MemoryEngineService:
             vector_store=vector_store,
         )
 
-    def write_events(self, request: MemoryWriteRequest) -> MemoryWriteResponse:
+    def write_events(
+        self,
+        request: MemoryWriteRequest,
+        *,
+        actor_id: str | None = None,
+    ) -> MemoryWriteResponse:
         return self.write_gate.write(
             patient_id=request.patient_id,
             encounter_id=request.encounter_id,
             source=request.source,
             clinical_events=request.clinical_events,
+            actor_id=actor_id or request.actor_id,
         )
 
     def get_events(self, patient_id: UUID) -> MemoryEventHistory:

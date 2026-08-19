@@ -1,5 +1,3 @@
-from uuid import UUID
-
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
@@ -50,7 +48,7 @@ def create_patient(
 
 @router.get("/{patient_id}", response_model=PatientResponse)
 def get_patient_details(
-    patient_id: UUID,
+    patient_id: str,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> PatientResponse:
@@ -69,7 +67,7 @@ def get_patient_details(
     dependencies=[Depends(require_role(Role.ADMIN))],
 )
 def assign_patient(
-    patient_id: UUID,
+    patient_id: str,
     request: PatientAssignmentRequest,
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -87,8 +85,9 @@ def assign_patient(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Patient assignment is not permitted.") from exc
     except PatientAssignmentError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    patient = require_patient_access(db, current_user, str(assignment.patient_id))
     return PatientAssignmentResponse(
-        patient_id=assignment.patient_id,
-        physician_id=assignment.physician_id,
+        patient_id=patient_response(patient)["patient_id"],
+        physician_id=str(assignment.physician_id),
         status=assignment.status,
     )

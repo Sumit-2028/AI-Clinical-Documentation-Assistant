@@ -37,6 +37,8 @@ class UserResponse(BaseModel):
     full_name: str
     role: str
     is_active: bool
-    patient_id: UUID | None = None
+    # Public patient identifiers are numeric strings so they remain stable in
+    # JSON and can be entered by clinicians without exposing internal UUIDs.
+    patient_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
