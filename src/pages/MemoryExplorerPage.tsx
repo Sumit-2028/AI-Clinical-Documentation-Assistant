@@ -4,11 +4,14 @@ import type { MemoryFact } from '../contracts/memory'
 import type { Conflict, RetrievedContext } from '../contracts/retrievedContext'
 import { useApproveTier3, useConflictList, useMemoryEvents, useRejectTier3, useResolveConflict, useRetrievedContext } from '../hooks/useMemory'
 import { useWorkflow, type WorkflowNavigationState } from '../context/WorkflowContext'
+import { useConflictResolutions } from '../context/ConflictResolutionContext'
+import { usePatientRecord } from '../hooks/usePatients'
+import type { PatientRecord } from '../contracts/patient'
 import { TrustTierBadge } from '../components/Badges'
 import { MemoryFactCard } from '../components/MemoryFactCard'
 import { MemoryProvenanceDrawer } from '../components/MemoryProvenanceDrawer'
 import { SectionCard } from '../components/SectionCard'
-import { AlertIcon, ArrowIcon, CheckIcon, ClockIcon, HeartIcon, SearchIcon, XIcon } from '../components/icons'
+import { AlertIcon, ArrowIcon, CheckIcon, ClockIcon, FileIcon, HeartIcon, SearchIcon, XIcon } from '../components/icons'
 
 type MemoryView = 'memory' | 'timeline' | 'verified' | 'unverified' | 'conflicts'
 const contextCategories = ['conditions', 'medications', 'allergies', 'procedures', 'lab_trends', 'significant_events'] as const
@@ -31,14 +34,17 @@ export function MemoryExplorerPage({ initialView = 'memory' }: { initialView?: M
   const [searchParams] = useSearchParams()
   const { workflow, setWorkflow } = useWorkflow()
   const routeWorkflow = (location.state as WorkflowNavigationState | null)?.workflow
+  const routePatient = (location.state as WorkflowNavigationState | null)?.patient
   const [view, setView] = useState<MemoryView>(initialView)
   const [queryInput, setQueryInput] = useState('')
   const [submittedQuestion, setSubmittedQuestion] = useState('')
   const [submittedConcepts, setSubmittedConcepts] = useState(['chest pain'])
-  const [hasSearched, setHasSearched] = useState(false)
+  const [hasSearched, setHasSearched] = useState(true)
   const [conversation, setConversation] = useState<string[]>([])
-  const [patientId, setPatientId] = useState(() => searchParams.get('patient_id') ?? routeWorkflow?.patient_id ?? workflow.patient_id)
-  const [encounterId, setEncounterId] = useState(() => searchParams.get('encounter_id') ?? routeWorkflow?.encounter_id ?? workflow.encounter_id)
+  const [patientId] = useState(() => routePatient?.patient_id ?? searchParams.get('patient_id') ?? routeWorkflow?.patient_id ?? workflow.patient_id)
+  const patientRecord = usePatientRecord(patientId)
+  const resolvedPatient = patientRecord.data ?? routePatient
+  const encounterId = resolvedPatient?.encounter_id ?? routeWorkflow?.encounter_id ?? workflow.encounter_id
   const [selectedFact, setSelectedFact] = useState<MemoryFact | null>(null)
   const [approvedIds, setApprovedIds] = useState<string[]>([])
   const [rejectedIds, setRejectedIds] = useState<string[]>([])
@@ -49,11 +55,15 @@ export function MemoryExplorerPage({ initialView = 'memory' }: { initialView?: M
   const approve = useApproveTier3()
   const reject = useRejectTier3()
   const resolve = useResolveConflict()
+  const { isResolved, resolveConflict: recordConflictResolution } = useConflictResolutions()
   const displayedContext = applyTierActions(context, approvedIds, rejectedIds)
+  const activeConflicts = conflicts.filter((conflict) => !isResolved(conflict.conflict_id))
+  const activeContextConflicts = (context?.conflicts ?? conflicts).filter((conflict) => !isResolved(conflict.conflict_id))
 
   useEffect(() => {
     if (routeWorkflow && (routeWorkflow.patient_id !== workflow.patient_id || routeWorkflow.encounter_id !== workflow.encounter_id || routeWorkflow.document_id !== workflow.document_id)) setWorkflow(routeWorkflow)
-  }, [location.state])
+    if (resolvedPatient && (resolvedPatient.patient_id !== workflow.patient_id || resolvedPatient.encounter_id !== workflow.encounter_id)) setWorkflow({ patient_id: resolvedPatient.patient_id, encounter_id: resolvedPatient.encounter_id })
+  }, [location.state, resolvedPatient])
 
   const submitQuery = (question: string) => {
     const trimmed = question.trim()
@@ -66,38 +76,40 @@ export function MemoryExplorerPage({ initialView = 'memory' }: { initialView?: M
   }
   const approveFact = (fact: MemoryFact) => { setApprovedIds((ids) => [...ids, fact.event_id]); approve.mutate({ eventId: fact.event_id, physicianId: 'phy_04' }) }
   const rejectFact = (fact: MemoryFact) => { setRejectedIds((ids) => [...ids, fact.event_id]); reject.mutate({ eventId: fact.event_id, physicianId: 'phy_04' }) }
-  const resolveConflict = (conflictId: string, action: 'confirm_event_a' | 'confirm_event_b' | 'keep_unresolved') => { setResolvedIds((ids) => [...ids, conflictId]); resolve.mutate({ conflictId, request: { resolution_action: action, physician_id: 'phy_04' } }) }
+  const resolveConflict = (conflictId: string, action: 'confirm_event_a' | 'confirm_event_b' | 'keep_unresolved') => { const conflict = conflicts.find((item) => item.conflict_id === conflictId); if (conflict) recordConflictResolution(conflict, action === 'confirm_event_a' ? 'keep_record_1' : action === 'confirm_event_b' ? 'keep_record_2' : 'mark_resolved'); setResolvedIds((ids) => [...ids, conflictId]); resolve.mutate({ conflictId, request: { resolution_action: action, physician_id: 'phy_04' } }) }
 
   return <div className="page-stack">
-    <PatientMemoryHeader patientId={patientId} encounterId={encounterId} onPatientIdChange={setPatientId} onEncounterIdChange={setEncounterId} />
+    <PatientMemoryHeader patient={resolvedPatient} patientId={patientId} />
     <MemoryTabs view={view} onChange={setView} />
-    {view === 'memory' && <><ClinicalQueryPanel query={queryInput} setQuery={setQueryInput} onSubmit={submitQuery} conversation={conversation} patientId={patientId} encounterId={encounterId} /><MemoryWorkspace context={displayedContext} timeline={timeline} conflicts={context?.conflicts ?? conflicts} question={submittedQuestion} hasSearched={hasSearched} isLoading={isLoading} patientId={patientId} encounterId={encounterId} onFactClick={setSelectedFact} onApprove={approveFact} onReject={rejectFact} /></>}
+    {view === 'memory' && <><ClinicalQueryPanel query={queryInput} setQuery={setQueryInput} onSubmit={submitQuery} conversation={conversation} patient={resolvedPatient} patientId={patientId} /><MemoryWorkspace context={displayedContext} timeline={timeline} conflicts={activeContextConflicts} question={submittedQuestion} hasSearched={hasSearched} isLoading={isLoading || patientRecord.isLoading} patientId={patientId} onFactClick={setSelectedFact} onApprove={approveFact} onReject={rejectFact} /></>}
     {view === 'timeline' && <TimelineView events={timeline} onFactClick={setSelectedFact} />}
     {view === 'verified' && <VerifiedInformationTab context={displayedContext} onFactClick={setSelectedFact} />}
     {view === 'unverified' && <UnverifiedInformationTab context={displayedContext} onFactClick={setSelectedFact} onApprove={approveFact} onReject={rejectFact} />}
-    {view === 'conflicts' && <><div className="conflict-route-header"><Link className="memory-context-back" to="/memory"><ArrowIcon /> Back to patient memory</Link></div><ConflictCenter conflicts={conflicts} resolvedIds={resolvedIds} onResolve={resolveConflict} onFactClick={setSelectedFact} /></>}
+    {view === 'conflicts' && <><div className="conflict-route-header"><Link className="memory-context-back" to={`/memory?patient_id=${encodeURIComponent(patientId)}`}><ArrowIcon /> Back to patient memory</Link></div><ConflictCenter conflicts={conflicts} resolvedIds={resolvedIds} onResolve={resolveConflict} onFactClick={setSelectedFact} /></>}
     {selectedFact && <MemoryProvenanceDrawer fact={selectedFact} onClose={() => setSelectedFact(null)} />}
   </div>
 }
 
-function PatientMemoryHeader({ patientId, encounterId, onPatientIdChange, onEncounterIdChange }: { patientId: string; encounterId: string; onPatientIdChange: (value: string) => void; onEncounterIdChange: (value: string) => void }) {
-  return <div className="memory-header"><div className="patient-profile-large"><div className="patient-avatar-large">AM</div><div><p className="eyebrow">PATIENT MEMORY</p><h1>Ananya Mehta</h1><p>32 years · Female · <span className="patient-status"><span /> Active patient</span></p></div></div><div className="patient-identifiers"><label>Patient ID<input value={patientId} onChange={(event) => onPatientIdChange(event.target.value)} /></label><label>Encounter ID<input value={encounterId} onChange={(event) => onEncounterIdChange(event.target.value)} /></label></div></div>
+function PatientMemoryHeader({ patient, patientId }: { patient?: PatientRecord; patientId: string }) {
+  const name = patient?.name ?? 'Patient record'
+  const initials = name === 'Patient record' ? 'P' : name.split(' ').map((part) => part[0]).join('').slice(0, 2)
+  return <div className="memory-header"><div className="patient-profile-large"><div className="patient-avatar-large">{initials}</div><div><p className="eyebrow">PATIENT MEMORY</p><h1>{name}</h1><p>{patient ? `${patient.age} years · ${patient.gender} · ` : ''}<span className="patient-status"><span /> {patient?.status === 'inactive' ? 'Inactive patient' : 'Active patient'}</span></p>{patient?.existing_context_summary && <small className="patient-context-summary">{patient.existing_context_summary}</small>}</div></div><div className="patient-identifiers"><label>Patient ID<input aria-label="Patient ID" value={patientId} readOnly /></label></div></div>
 }
 
 function MemoryTabs({ view, onChange }: { view: MemoryView; onChange: (view: MemoryView) => void }) {
   const tabs: Array<{ id: Exclude<MemoryView, 'conflicts'>; label: string; icon: typeof HeartIcon }> = [
     { id: 'memory', label: 'Patient memory', icon: HeartIcon }, { id: 'timeline', label: 'Patient timeline', icon: ClockIcon }, { id: 'verified', label: 'Verified information', icon: CheckIcon }, { id: 'unverified', label: 'Unverified information', icon: AlertIcon },
   ]
-  return <div className="memory-nav" role="tablist" aria-label="Patient memory views">{tabs.map(({ id, label, icon: Icon }) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'active' : ''} onClick={() => onChange(id)}><Icon /> {label}</button>)}</div>
+  return <div className="memory-nav" role="tablist" aria-label="Patient memory views">{tabs.map(({ id, label, icon: Icon }) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'active' : ''} onClick={() => onChange(id)}><Icon /> {label}</button>)}<Link className="memory-document-link" to="/documentation"><FileIcon /> Documentation <ArrowIcon /></Link></div>
 }
 
-function ClinicalQueryPanel({ query, setQuery, onSubmit, conversation, patientId, encounterId }: { query: string; setQuery: (value: string) => void; onSubmit: (value: string) => void; conversation: string[]; patientId: string; encounterId: string }) {
+function ClinicalQueryPanel({ query, setQuery, onSubmit, conversation, patient, patientId }: { query: string; setQuery: (value: string) => void; onSubmit: (value: string) => void; conversation: string[]; patient?: PatientRecord; patientId: string }) {
   const suggestions = ['Current medications', 'Recent medication changes', 'Allergy history', 'Recent hypertension history', 'Relevant procedures']
-  return <SectionCard title="Ask about this patient's history" eyebrow="CLINICAL SEARCH" className="retrieval-card conversational-card"><p className="memory-search-subtitle">Search the patient's clinical history using a natural-language question.</p><form onSubmit={(event) => { event.preventDefault(); onSubmit(query) }}><div className="conversation-input-wrap"><SearchIcon /><textarea aria-label="Ask about this patient's history" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); onSubmit(query) } }} placeholder="What would you like to know about this patient's history?" rows={3} /><button className="primary-button" type="submit"><SearchIcon /> Ask</button></div></form><div className="query-context"><span>Ananya Mehta · Current consultation</span><span className="query-context-note">Patient <strong>{patientId}</strong> · Encounter <strong>{encounterId}</strong></span></div><div className="suggested-questions"><span>Suggested questions</span>{suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => onSubmit(suggestion)}>{suggestion}</button>)}</div>{conversation.length > 0 && <div className="conversation-history">{conversation.map((question, index) => <div className="conversation-turn" key={`${question}-${index}`}><span className="conversation-speaker physician">YOU</span><p>{question}</p></div>)}</div>}</SectionCard>
+  return <SectionCard title="Ask about this patient's history" eyebrow="CLINICAL SEARCH" className="retrieval-card conversational-card"><form onSubmit={(event) => { event.preventDefault(); onSubmit(query) }}><div className="conversation-input-wrap"><SearchIcon /><input aria-label="Ask about this patient's history" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); onSubmit(query) } }} placeholder="What would you like to know about this patient's history?" /><button className="primary-button" type="submit"><SearchIcon /> Ask</button></div></form><div className="query-context"><span>{patient?.name ?? 'Patient record'} · Historical context loaded</span><span className="query-context-note">Patient <strong>{patientId}</strong></span></div><div className="suggested-questions"><span>Suggested questions</span>{suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => onSubmit(suggestion)}>{suggestion}</button>)}</div>{conversation.length > 0 && <div className="conversation-history">{conversation.map((question, index) => <div className="conversation-turn" key={`${question}-${index}`}><span className="conversation-speaker physician">YOU</span><p>{question}</p></div>)}</div>}</SectionCard>
 }
 
-function MemoryWorkspace({ context, timeline, conflicts, question, hasSearched, isLoading, patientId, encounterId, onFactClick, onApprove, onReject }: { context?: RetrievedContext; timeline: MemoryFact[]; conflicts: Conflict[]; question: string; hasSearched: boolean; isLoading: boolean; patientId: string; encounterId: string; onFactClick: (fact: MemoryFact) => void; onApprove: (fact: MemoryFact) => void; onReject: (fact: MemoryFact) => void }) {
-  return <><div className="memory-columns"><RelevantPatientContext context={context} question={question} hasSearched={hasSearched} isLoading={isLoading} onFactClick={onFactClick} onApprove={onApprove} onReject={onReject} /><RecentPatientActivity events={timeline} onFactClick={onFactClick} /></div><ConflictPreview conflicts={conflicts} patientId={patientId} encounterId={encounterId} onFactClick={onFactClick} /></>
+function MemoryWorkspace({ context, timeline, conflicts, question, hasSearched, isLoading, patientId, onFactClick, onApprove, onReject }: { context?: RetrievedContext; timeline: MemoryFact[]; conflicts: Conflict[]; question: string; hasSearched: boolean; isLoading: boolean; patientId: string; onFactClick: (fact: MemoryFact) => void; onApprove: (fact: MemoryFact) => void; onReject: (fact: MemoryFact) => void }) {
+  return <><div className="memory-columns"><RelevantPatientContext context={context} question={question} hasSearched={hasSearched} isLoading={isLoading} onFactClick={onFactClick} onApprove={onApprove} onReject={onReject} /><RecentPatientActivity events={timeline} onFactClick={onFactClick} /></div><ConflictPreview conflicts={conflicts} patientId={patientId} onFactClick={onFactClick} /></>
 }
 
 type ContextItem = { fact: MemoryFact; verified: boolean }
@@ -146,9 +158,9 @@ function TimelineView({ events, onFactClick }: { events: MemoryFact[]; onFactCli
   return <SectionCard title="Patient timeline" eyebrow="LONGITUDINAL PATIENT HISTORY" action={<span className="append-only-badge"><span className="append-dot" /> No records overwritten</span>}><div className="timeline-list">{events.map((event, index) => <div className="timeline-row" key={event.event_id}><div className="timeline-date"><strong>{new Date(event.event_timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</strong><span>{new Date(event.event_timestamp).getFullYear()}</span></div><div className="timeline-rail"><span className="timeline-node" />{index < events.length - 1 && <span className="timeline-connector" />}</div><button className="timeline-fact" onClick={() => onFactClick(event)}><div><span className="timeline-kicker">{event.entity_type} · {event.event_id}</span><strong>{event.normalized_concept}</strong><span>{event.medication_attributes.dosage ?? event.medication_attributes.route ?? event.assertion} · {event.clinical_status}</span></div><div className="timeline-right"><TrustTierBadge tier={event.trust_tier} /><span>{Math.round(event.extraction_confidence * 100)}% confidence</span><ArrowIcon /></div></button></div>)}</div><div className="timeline-invariant"><ClockIcon /><span><strong>History is preserved.</strong> Dose changes remain separate records: 500 mg → 1000 mg → discontinued.</span></div></SectionCard>
 }
 
-function ConflictPreview({ conflicts, patientId, encounterId, onFactClick }: { conflicts: Conflict[]; patientId: string; encounterId: string; onFactClick: (fact: MemoryFact) => void }) {
+function ConflictPreview({ conflicts, patientId, onFactClick }: { conflicts: Conflict[]; patientId: string; onFactClick: (fact: MemoryFact) => void }) {
   if (conflicts.length === 0) return null
-  const conflictHref = `/conflicts?patient_id=${encodeURIComponent(patientId)}&encounter_id=${encodeURIComponent(encounterId)}`
+  const conflictHref = `/resolve-conflict?patient_id=${encodeURIComponent(patientId)}&conflict_id=${encodeURIComponent(conflicts[0].conflict_id)}`
   return <SectionCard title="Conflicting records" eyebrow="SAFETY REVIEW" action={<span className="high-risk-label"><AlertIcon /> {conflicts.length} conflicting record{conflicts.length === 1 ? '' : 's'}</span>} className="context-conflict-card"><div className="conflict-list">{conflicts.map((conflict) => <ConflictCard key={conflict.conflict_id} conflict={conflict} onResolve={() => undefined} onFactClick={onFactClick} compact />)}</div><Link className="conflict-review-link" to={conflictHref}>Review conflict <ArrowIcon /></Link></SectionCard>
 }
 

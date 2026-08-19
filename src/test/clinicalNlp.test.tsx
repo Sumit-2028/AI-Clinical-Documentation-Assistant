@@ -33,13 +33,16 @@ describe('Clinical NLP experience', () => {
     expect(screen.getByText('Suggested interpretation: twice daily')).toBeInTheDocument()
   })
 
-  it('renders lab attributes and temporal context', () => {
+  it('renders lab attributes without redundant temporal and confidence fields', () => {
     renderCard(lab)
     expect(screen.getByText('Laboratory finding', { exact: false })).toBeInTheDocument()
-    expect(screen.getByText('specific date')).toBeInTheDocument()
     expect(screen.getByText('HbA1c')).toBeInTheDocument()
     expect(screen.getByText('7.2')).toBeInTheDocument()
-    expect(screen.getByText('%')).toBeInTheDocument()
+    expect(screen.queryByText('Entity extraction', { exact: true })).not.toBeInTheDocument()
+    expect(screen.queryByText('Clinical interpretation', { exact: true })).not.toBeInTheDocument()
+    expect(screen.queryByText('Status', { exact: true })).not.toBeInTheDocument()
+    expect(screen.queryByText('Time context', { exact: true })).not.toBeInTheDocument()
+    expect(screen.queryByText('Clinical date', { exact: true })).not.toBeInTheDocument()
   })
 
   it('blocks invalid validation output from the memory-ready state', () => {
@@ -67,7 +70,13 @@ describe('Clinical NLP experience', () => {
     expect(await screen.findByRole('button', { name: 'View all clinical findings' })).toBeInTheDocument()
     expect(screen.getByText('Ready to add to patient record')).toBeInTheDocument()
     expect(await screen.findByText(`${reviewRequiredCount} ${reviewRequiredCount === 1 ? 'finding needs' : 'findings need'} your review`)).toBeInTheDocument()
-    expect(screen.getByText('Show source text')).toBeInTheDocument()
+    expect(screen.getByText('Show extracted info & attached source')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Show extracted info & attached source'))
+    const extractedSection = screen.getByRole('heading', { name: 'Review the extracted information against the original source document.' }).closest('details')!
+    expect(within(extractedSection).getByText('Extracted text')).toBeInTheDocument()
+    expect(within(extractedSection).queryByText('Processed text')).not.toBeInTheDocument()
+    expect(within(extractedSection).queryByText('Clinical finding types')).not.toBeInTheDocument()
+    expect(await within(extractedSection).findByRole('link', { name: 'Open source document doc_5521' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'View all clinical findings' })).toBeInTheDocument()
     const findingsSection = screen.getByRole('heading', { name: 'Clinical findings' }).closest('section')!
     expect(within(findingsSection).queryByText(valid.event_local_id)).not.toBeInTheDocument()
@@ -96,6 +105,7 @@ describe('Clinical NLP experience', () => {
     expect(screen.getByRole('dialog', { name: 'Source information' })).toBeInTheDocument()
     expect(screen.getByText('Source text')).toBeInTheDocument()
     expect(screen.getByText('Start')).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Open source document doc_5521' })).toHaveAttribute('href', expect.stringMatching(/^data:application\/pdf/))
   })
 
   it('allows a physician to use or edit an ambiguous interpretation without changing the source', async () => {
@@ -123,5 +133,15 @@ describe('Clinical NLP experience', () => {
     expect(await screen.findByText('No findings require your review')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'View all clinical findings' }))
     expect(screen.getAllByText('Reviewable eligible finding').length).toBeGreaterThan(0)
+  })
+
+  it('allows a physician to accept a flagged review-required finding', async () => {
+    renderApp({ ...response, clinical_events: [invalid] })
+    expect(await screen.findByText('1 finding needs your review')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Accept finding' }))
+    const dialog = screen.getByRole('dialog', { name: 'Accept this finding?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept finding' }))
+    expect((await screen.findAllByText('Accepted')).length).toBeGreaterThan(0)
+    expect(await screen.findByText('No findings require your review')).toBeInTheDocument()
   })
 })

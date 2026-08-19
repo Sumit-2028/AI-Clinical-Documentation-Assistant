@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 import type { ProcessingStatus } from '../contracts/common'
+import type { PatientRecord } from '../contracts/patient'
 
 export type WorkflowStage =
   | 'upload'
@@ -45,6 +46,7 @@ export const defaultWorkflowState: WorkflowState = {
 
 export interface WorkflowNavigationState {
   workflow?: WorkflowState
+  patient?: PatientRecord
 }
 
 interface WorkflowContextValue {

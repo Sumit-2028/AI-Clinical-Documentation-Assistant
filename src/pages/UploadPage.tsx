@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { uploadHandwrittenDocument, uploadMultilingualInput, uploadTypedDocument } from '../api'
+import { searchPatients, uploadHandwrittenDocument, uploadMultilingualInput, uploadTypedDocument } from '../api'
 import type { InputModality, ProcessingStatus } from '../contracts/common'
 import type { Step1Output } from '../contracts/step1Output'
+import type { PatientRecord } from '../contracts/patient'
 import { useStep1Output } from '../hooks/useStep1'
 import { useWorkflow } from '../context/WorkflowContext'
-import { AlertIcon, ArrowIcon, CheckIcon, FileIcon, UploadIcon } from '../components/icons'
+import { AlertIcon, ArrowIcon, CheckIcon, FileIcon, SearchIcon, UploadIcon } from '../components/icons'
 import { StatusBadge } from '../components/Badges'
 import { SectionCard } from '../components/SectionCard'
 import { WorkflowProgress } from '../components/WorkflowProgress'
@@ -18,9 +19,13 @@ export function UploadPage() {
   const [modality, setModality] = useState<InputModality>('multilingual')
   const [fileName, setFileName] = useState(output?.source_document ?? '')
   const [patientId, setPatientId] = useState(output?.patient_id ?? workflow.patient_id)
-  const [encounterId, setEncounterId] = useState(output?.encounter_id ?? workflow.encounter_id)
+  const [encounterId] = useState(output?.encounter_id ?? workflow.encounter_id)
   const [sourceLanguage, setSourceLanguage] = useState(output?.source_language ?? 'hi')
   const [isDragging, setIsDragging] = useState(false)
+  const [patientMenuOpen, setPatientMenuOpen] = useState(false)
+  const [patientSearch, setPatientSearch] = useState('')
+  const [patientResults, setPatientResults] = useState<PatientRecord[]>([])
+  const patientSelectorRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
 
   const upload = useMutation({
@@ -39,6 +44,20 @@ export function UploadPage() {
   useEffect(() => {
     if (output && !fileName) setFileName(output.source_document)
   }, [output, fileName])
+  useEffect(() => {
+    if (!patientMenuOpen) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (patientSelectorRef.current && !patientSelectorRef.current.contains(event.target as Node)) setPatientMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [patientMenuOpen])
+  useEffect(() => {
+    if (!patientMenuOpen) return
+    let active = true
+    void searchPatients(patientSearch).then((results) => { if (active) setPatientResults(results) })
+    return () => { active = false }
+  }, [patientMenuOpen, patientSearch])
 
   const handleFile = (file: File | undefined) => {
     if (file) setFileName(file.name)
@@ -69,9 +88,19 @@ export function UploadPage() {
         {fileName && <div className="file-preview"><div className="file-icon"><FileIcon /></div><div><strong>{fileName}</strong><span>{modality === 'multilingual' ? 'Multilingual document' : `${modality[0].toUpperCase()}${modality.slice(1)} document`}</span></div><span className="file-ready"><CheckIcon /> Ready</span></div>}
         <div className="form-divider" />
         <div className="form-grid">
-          <label>Patient search / select<div className="input-with-icon"><span className="patient-initials">AM</span><input value="Ananya Mehta" readOnly /><span className="select-caret">⌄</span></div></label>
+          <div className="patient-field">
+            <span className="field-label">Patient search / select</span>
+            <div className={`patient-selector ${patientMenuOpen ? 'is-open' : ''}`} ref={patientSelectorRef}>
+              <button type="button" className="input-with-icon patient-selector-trigger" aria-haspopup="listbox" aria-expanded={patientMenuOpen} aria-label="Selected patient" onClick={() => setPatientMenuOpen((open) => !open)} onKeyDown={(event) => { if (event.key === 'Escape') { setPatientMenuOpen(false); event.currentTarget.blur() } }}>
+                <span className="patient-initials">AM</span><span className="patient-selector-name">Ananya Mehta</span><span className="select-caret" aria-hidden="true">⌄</span>
+              </button>
+              {patientMenuOpen && <div className="patient-selector-menu" role="listbox" aria-label="Patient results" onClick={(event) => event.stopPropagation()}>
+                <div className="patient-search-input"><SearchIcon /><input autoFocus type="search" aria-label="Search patients" placeholder="Search by patient ID or name" value={patientSearch} onChange={(event) => setPatientSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setPatientMenuOpen(false) }} /></div>
+                {patientResults.length > 0 ? patientResults.map((patient) => <button key={patient.patient_id} type="button" role="option" aria-selected={patient.patient_id === patientId} className="patient-option" onClick={() => { setPatientId(patient.patient_id); setPatientMenuOpen(false); setPatientSearch('') }}><span className="patient-initials">{patient.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span className="patient-option-copy"><strong>{patient.name}</strong><small>Patient ID {patient.patient_id}</small></span>{patient.patient_id === patientId ? <CheckIcon /> : <ArrowIcon />}</button>) : <p className="patient-empty">No patients found.</p>}
+              </div>}
+            </div>
+          </div>
           <label>Patient ID<input value={patientId} onChange={(event) => setPatientId(event.target.value)} /></label>
-          <label>Encounter ID<input value={encounterId} onChange={(event) => setEncounterId(event.target.value)} /></label>
         </div>
       </SectionCard>
 

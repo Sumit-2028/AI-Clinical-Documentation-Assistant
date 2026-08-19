@@ -10,11 +10,12 @@ import type { MemoryFact } from '../contracts/memory'
 import type { RetrievedContext } from '../contracts/retrievedContext'
 import { MemoryFactCard } from '../components/MemoryFactCard'
 import { MemoryProvenanceDrawer } from '../components/MemoryProvenanceDrawer'
+import { ConflictResolutionProvider } from '../context/ConflictResolutionContext'
 import { deriveQueryConcepts, MemoryExplorerPage } from '../pages/MemoryExplorerPage'
 
 const context = retrievedContext as unknown as RetrievedContext
 const timeline = memoryEvents as unknown as MemoryFact[]
-const renderWithQuery = (ui: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>)
+const renderWithQuery = (ui: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ConflictResolutionProvider>{ui}</ConflictResolutionProvider></QueryClientProvider>)
 
 describe('Step 3 memory contracts and views', () => {
   it('keeps verified, unverified, trust tiers, and high-risk conflict facts distinct', async () => {
@@ -54,6 +55,7 @@ describe('Step 3 memory contracts and views', () => {
     expect(deriveQueryConcepts('What medication changes are relevant to chest pain?')).toEqual(expect.arrayContaining(['chest pain', 'medications', 'medication changes']))
     renderWithQuery(<MemoryRouter><MemoryExplorerPage /></MemoryRouter>)
     const input = await screen.findByRole('textbox', { name: "Ask about this patient's history" })
+    expect(screen.queryByText("Search the patient's clinical history using a natural-language question.")).not.toBeInTheDocument()
     fireEvent.change(input, { target: { value: 'What medications is this patient currently taking?' } })
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
     expect(screen.getByText('What medications is this patient currently taking?')).toBeInTheDocument()
@@ -63,19 +65,25 @@ describe('Step 3 memory contracts and views', () => {
     expect(await screen.findByText('Relevant medication history')).toBeInTheDocument()
   })
 
+  it('provides a documentation shortcut from patient memory', async () => {
+    renderWithQuery(<MemoryRouter><MemoryExplorerPage /></MemoryRouter>)
+    const documentationLink = await screen.findByRole('link', { name: /Documentation/ })
+    expect(documentationLink).toHaveAttribute('href', '/documentation')
+  })
+
   it('links contextual conflicts with the current patient and encounter', async () => {
     renderWithQuery(<MemoryRouter><MemoryExplorerPage /></MemoryRouter>)
     const input = await screen.findByRole('textbox', { name: "Ask about this patient's history" })
     fireEvent.change(input, { target: { value: 'What conflicts should I review?' } })
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
     const reviewLink = await screen.findByRole('link', { name: 'Review conflict' })
-    expect(reviewLink).toHaveAttribute('href', '/conflicts?patient_id=pat_00123&encounter_id=enc_2026_0817_01')
+    expect(reviewLink).toHaveAttribute('href', '/resolve-conflict?patient_id=pat_00123&conflict_id=conflict_001')
   })
 
   it('opens the existing conflict workflow with patient context populated', async () => {
     renderWithQuery(<MemoryRouter initialEntries={['/conflicts?patient_id=pat_00999&encounter_id=enc_context_01']}><MemoryExplorerPage initialView="conflicts" /></MemoryRouter>)
     expect(await screen.findByDisplayValue('pat_00999')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('enc_context_01')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('enc_context_01')).not.toBeInTheDocument()
     expect(await screen.findByText('Conflicting records')).toBeInTheDocument()
   })
 

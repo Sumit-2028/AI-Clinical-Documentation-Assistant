@@ -29,6 +29,7 @@ export interface DocumentProvenanceEntry {
   source_language: string
   input_modality: InputModality | string
   extraction_confidence: number
+  source_text_span?: { start: number; end: number }
 }
 
 export interface PhysicianReviewFlag {

@@ -28,10 +28,14 @@ export async function getStep1Output(_jobId: string): Promise<Step1Output> { awa
 
 export async function verifyStep1Field(request: VerifyStep1FieldRequest): Promise<VerificationResponse> {
   await pause()
+  const field = step1State.extracted_fields.find((item) => item.field_id === request.field_id)
+  if (!field) throw new Error('The extracted field could not be found.')
+  const verifiedText = request.verified_text.trim()
   const updatedFields = step1State.extracted_fields.map((field) => field.field_id === request.field_id
-    ? { ...field, verified_text: request.verified_text, review_status: request.approved ? 'approved' as const : 'rejected' as const, requires_doctor_review_before_memory_write: false }
+    ? { ...field, standardized_text: request.approved ? verifiedText : field.standardized_text, verified_text: request.approved ? verifiedText : null, review_status: request.approved ? 'approved' as const : 'rejected' as const, requires_doctor_review_before_memory_write: false }
     : field)
-  step1State = { ...step1State, extracted_fields: updatedFields, updated_at: new Date().toISOString(), written_to_memory: updatedFields.every((field) => field.review_status === 'approved' || field.review_status === 'rejected') }
+  const reviewComplete = updatedFields.every((item) => !item.requires_doctor_review_before_memory_write && item.review_status !== 'review_required' && item.review_status !== 'pending')
+  step1State = { ...step1State, extracted_fields: updatedFields, processing_status: reviewComplete ? 'complete' : 'pending_human_verification', updated_at: new Date().toISOString(), written_to_memory: reviewComplete && updatedFields.every((item) => item.review_status === 'approved') }
   return { status: request.approved ? 'verified' : 'rejected', written_to_memory: step1State.written_to_memory, audit_log_id: 'aud_9910' }
 }
 

@@ -1,15 +1,6 @@
 import { CheckIcon } from './icons'
 import { useWorkflow, workflowStageOrder, type WorkflowStage } from '../context/WorkflowContext'
 
-const workflowSteps: Array<{ label: string; stage: WorkflowStage }> = [
-  { label: 'Upload', stage: 'upload' },
-  { label: 'Extraction', stage: 'extraction' },
-  { label: 'Confidence check', stage: 'confidence' },
-  { label: 'Verification', stage: 'verification' },
-  { label: 'Clinical intelligence', stage: 'clinical-intelligence' },
-  { label: 'Patient memory', stage: 'patient-memory' },
-]
-
 const clinicalStages: Array<{ label: string; stage: WorkflowStage }> = [
   { label: 'Abbreviation review', stage: 'abbreviation-review' },
   { label: 'Entity extraction', stage: 'entity-extraction' },
@@ -28,13 +19,6 @@ function stepState(currentStage: WorkflowStage, stage: WorkflowStage) {
 export function WorkflowProgress({ detail = false }: { detail?: boolean }) {
   const { workflow } = useWorkflow()
   return <>
-    <div className="pipeline-card shared-workflow-progress" aria-label="Processing workflow">
-      {workflowSteps.map(({ label, stage }, index) => <div className={`pipeline-step ${stepState(workflow.current_stage, stage)}`} key={stage}>
-        <div className="pipeline-icon">{stepState(workflow.current_stage, stage) === 'done' ? <CheckIcon /> : <span>{index + 1}</span>}</div>
-        <span>{label}</span>
-        {index < workflowSteps.length - 1 && <div className="pipeline-line" />}
-      </div>)}
-    </div>
     {detail && <div className="nlp-timeline clinical-review-progress" aria-label="Clinical intelligence workflow">
       {clinicalStages.map(({ label, stage }, index) => <div className={`nlp-stage ${stepState(workflow.current_stage, stage)}`} key={stage}>
         <div className="nlp-stage-marker">{stepState(workflow.current_stage, stage) === 'done' ? <CheckIcon /> : <span>{index + 1}</span>}</div>
