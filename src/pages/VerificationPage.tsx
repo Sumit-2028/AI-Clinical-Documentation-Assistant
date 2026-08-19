@@ -8,20 +8,25 @@ import { SourceDocumentLink } from '../components/SourceDocumentLink'
 import type { ExtractedField } from '../contracts/step1Output'
 
 interface VerificationNavigationState { fieldId?: string }
+function requiresPhysicianReview(field: ExtractedField): boolean {
+  if (field.review_status === 'approved' || field.review_status === 'rejected') return false
+  return field.requires_doctor_review_before_memory_write || field.review_status === 'review_required' || field.review_status === 'pending'
+}
 
 export function VerificationPage() {
   const location = useLocation()
   const routeState = location.state as VerificationNavigationState | null
   const { data: output } = useStep1Output()
   const [selectedId, setSelectedId] = useState<string | null>(routeState?.fieldId ?? null)
-  const selected = output?.extracted_fields.find((field) => field.field_id === selectedId) ?? output?.extracted_fields.find((field) => field.requires_doctor_review_before_memory_write)
+  const reviewFields = output?.extracted_fields.filter(requiresPhysicianReview) ?? []
+  const selected = reviewFields.find((field) => field.field_id === selectedId) ?? reviewFields[0]
 
   useEffect(() => {
     setSelectedId(routeState?.fieldId ?? null)
   }, [routeState?.fieldId])
 
   if (!output) return <div className="empty-loading">Loading verification record…</div>
-  return <div className="page-stack"><div className="page-heading"><div><p className="eyebrow">PHYSICIAN REVIEW</p><h1>Review & correct extracted information</h1><p className="page-subtitle">Review uncertain information, correct the extracted value when needed, and confirm it against the original source.</p></div><div className="safety-pill"><AlertIcon /> Unverified information is blocked</div></div><div className="verification-grid"><SectionCard title="Source document" eyebrow="ORIGINAL INPUT" className="document-preview"><div className="document-toolbar"><SourceDocumentLink documentId={output.document_id} className="document-source-link" label="Open source record" /><span>Page 1 / 1</span></div><div className="document-sheet"><div className="document-stamp">MEDFLOW SCAN</div><p>{output.original_language_text ?? 'Original source text preserved for review.'}</p><p>Clinical information requiring physician review</p><div className="highlight-box">{selected?.raw_text ?? 'Select information to inspect'}</div></div><div className="document-caption">Original source preserved · {output.source_language.toUpperCase()} · {Math.round((output.translation_confidence ?? 0) * 100)}% translation confidence</div></SectionCard><SectionCard title="Extracted information" eyebrow={`${output.extracted_fields.length} ITEMS · ${output.patient_id}`} className="field-review-card"><div className="field-review-list">{output.extracted_fields.map((field) => <FieldReviewItem key={field.field_id} field={field} selected={field.field_id === selected?.field_id} onSelect={() => setSelectedId(field.field_id)} />)}</div>{selected && <VerificationActions key={selected.field_id} field={selected} />}</SectionCard></div><div className="safety-banner"><div className="safety-banner-icon"><AlertIcon /></div><div><strong>Unverified information cannot be added to the patient record.</strong><span>Only automatically cleared or physician-confirmed information can proceed.</span></div></div></div>
+  return <div className="page-stack"><div className="page-heading"><div><p className="eyebrow">PHYSICIAN REVIEW</p><h1>Review & correct extracted information</h1><p className="page-subtitle">Review uncertain information, correct the extracted value when needed, and confirm it against the original source.</p></div><div className="safety-pill"><AlertIcon /> Unverified information is blocked</div></div><div className="verification-grid"><SectionCard title="Source document" eyebrow="ORIGINAL INPUT" className="document-preview"><div className="document-toolbar"><SourceDocumentLink documentId={output.document_id} className="document-source-link" label="Open source record" /><span>Page 1 / 1</span></div><div className="document-sheet"><div className="document-stamp">MEDFLOW SCAN</div><p>{output.original_language_text ?? 'Original source text preserved for review.'}</p><p>Clinical information requiring physician review</p><div className="highlight-box">{selected?.raw_text ?? 'Select information to inspect'}</div></div><div className="document-caption">Original source preserved · {output.source_language.toUpperCase()} · {Math.round((output.translation_confidence ?? 0) * 100)}% translation confidence</div></SectionCard><SectionCard title="Extracted information" eyebrow={`${reviewFields.length} ITEMS · ${output.patient_id}`} className="field-review-card"><div className="field-review-list">{reviewFields.length > 0 ? reviewFields.map((field) => <FieldReviewItem key={field.field_id} field={field} selected={field.field_id === selected?.field_id} onSelect={() => setSelectedId(field.field_id)} />) : <div className="empty-loading">No items require physician review.</div>}</div>{selected && <VerificationActions key={selected.field_id} field={selected} />}</SectionCard></div><div className="safety-banner"><div className="safety-banner-icon"><AlertIcon /></div><div><strong>Unverified information cannot be added to the patient record.</strong><span>Only automatically cleared or physician-confirmed information can proceed.</span></div></div></div>
 }
 
 function FieldReviewItem({ field, selected, onSelect }: { field: ExtractedField; selected: boolean; onSelect: () => void }) {

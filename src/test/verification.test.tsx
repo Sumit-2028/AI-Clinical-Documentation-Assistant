@@ -8,6 +8,18 @@ import step1Fixture from '../mocks/step1-output.json'
 function renderVerification() { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/verification']}><App /></MemoryRouter></QueryClientProvider>) }
 
 describe('Step 1 physician correction', () => {
+  it('shows only information that requires physician review', async () => {
+    renderVerification()
+    expect(await screen.findByRole('heading', { name: 'Review & correct extracted information' })).toBeInTheDocument()
+
+    const fieldItems = screen.getAllByRole('button').filter((button) => button.className.includes('field-review-item'))
+    expect(fieldItems).toHaveLength(3)
+    expect(screen.getByRole('button', { name: /Amoxicillin/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /dosage strength/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /frequency/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Metformin/ })).not.toBeInTheDocument()
+  })
+
   it('opens the field selected from the Review Queue', async () => {
     const field = step1Fixture.extracted_fields.find((item) => item.field_id === 'fld_dose_001')!
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

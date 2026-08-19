@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { App } from '../App'
+import { activateDemoSession, clearDemoSession } from '../lib/demoSession'
 
 function renderApp(initialEntry = '/') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -10,10 +11,36 @@ function renderApp(initialEntry = '/') {
 }
 
 describe('MedFlow application', () => {
-  it('renders the dashboard shell', async () => {
+  beforeEach(() => clearDemoSession())
+
+  it('renders the landing page at the public root', async () => {
+    renderApp()
+    expect(await screen.findByRole('heading', { name: /patient's history/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Sign in' })[0]).toHaveAttribute('href', '/login')
+  })
+
+  it('renders the existing dashboard at the root after demo login', async () => {
+    activateDemoSession()
     renderApp()
     expect(await screen.findByText('Good morning, Dr. Mehta')).toBeInTheDocument()
     expect(screen.getByText('Recent uploads')).toBeInTheDocument()
+  })
+
+  it('accepts only the demo credentials and returns to the dashboard', async () => {
+    renderApp('/login')
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@gmail.com' } })
+    fireEvent.change(screen.getByLabelText(/Password/), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Login →' }))
+    expect(await screen.findByText('Good morning, Dr. Mehta')).toBeInTheDocument()
+  })
+
+  it('keeps invalid demo credentials on the login page', async () => {
+    renderApp('/login')
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@gmail.com' } })
+    fireEvent.change(screen.getByLabelText(/Password/), { target: { value: 'wrong' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Login →' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid email or password.')
+    expect(screen.getByRole('heading', { name: 'Welcome back to MedFlowAI' })).toBeInTheDocument()
   })
 
   it('renders the Step 1 upload route', async () => {

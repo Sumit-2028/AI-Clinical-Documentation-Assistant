@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { App } from '../App'
+import { activateDemoSession, clearDemoSession } from '../lib/demoSession'
 
 function renderApp(initialEntry = '/') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -10,6 +11,8 @@ function renderApp(initialEntry = '/') {
 }
 
 describe('shared physician workflow', () => {
+  beforeEach(() => clearDemoSession())
+
   it('starts processing from upload and preserves patient, encounter, and document context', async () => {
     renderApp('/upload')
     expect(await screen.findByRole('heading', { name: 'Upload & process' })).toBeInTheDocument()
@@ -23,6 +26,7 @@ describe('shared physician workflow', () => {
   })
 
   it('keeps only permanent destinations in the physician sidebar', () => {
+    activateDemoSession()
     renderApp('/')
     const navigation = screen.getByRole('navigation')
     expect(within(navigation).getAllByRole('link')).toHaveLength(5)
