@@ -12,3 +12,4 @@ pypdf
 email-validator
 pytest
 httpx
+boto3

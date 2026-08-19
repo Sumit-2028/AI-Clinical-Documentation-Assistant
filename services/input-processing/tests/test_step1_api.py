@@ -47,7 +47,10 @@ def test_unreadable_pdf_returns_validation_error_instead_of_server_error():
     )
 
     assert response.status_code == 422
-    assert "no extractable text" in response.json()["detail"]
+    # The message depends on which parser handled it: pypdf rejects the
+    # envelope outright, the dependency-free fallback reports no text. Both are
+    # a client error rather than a 500, which is what this guards.
+    assert "PDF" in response.json()["detail"]
 
 
 def test_handwritten_endpoint_and_human_verification_endpoint():
@@ -55,7 +58,10 @@ def test_handwritten_endpoint_and_human_verification_endpoint():
     response = client.post(
         "/api/v1/step1/documents/handwritten",
         data={"patient_id": str(uuid4()), "encounter_id": str(uuid4())},
-        files={"file": ("note.png", b"Patient has penicillin allergy", "image/png")},
+        # Declared as text so the deterministic OCR mock, which decodes the
+        # upload as UTF-8, still yields extractable fields.  Content signature
+        # validation rejects text bytes labelled as an image.
+        files={"file": ("note.txt", b"Patient has penicillin allergy", "text/plain")},
     )
 
     assert response.status_code == 200

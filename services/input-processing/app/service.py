@@ -23,6 +23,8 @@ from .preprocessing import (
     normalize_text,
     split_into_candidate_fields,
 )
+from services.object_storage import StoredObject
+
 from .repository import (
     DocumentRepository,
     EncounterPatientMismatchError,
@@ -64,6 +66,32 @@ class InputProcessingService:
         self.audit_logger = audit_logger or InMemoryAuditLogger()
         self.adapters = adapters or build_adapter_bundle()
 
+    def _record_source_object(
+        self,
+        document_id: UUID,
+        source_object: StoredObject | None,
+    ) -> None:
+        """Associate stored bytes with a document, if the repository supports it.
+
+        Reached through getattr so repository doubles predating the source
+        object methods keep working.
+        """
+
+        if source_object is None:
+            return
+        recorder = getattr(self.repository, "record_source_object", None)
+        if recorder is None:
+            return
+        recorder(document_id, source_object)
+
+    def get_source_object(self, document_id: UUID) -> StoredObject | None:
+        if self.repository.get(document_id) is None:
+            raise DocumentNotFoundError(str(document_id))
+        reader = getattr(self.repository, "get_source_object", None)
+        if reader is None:
+            return None
+        return reader(document_id)
+
     def process_typed(
         self,
         *,
@@ -72,12 +100,14 @@ class InputProcessingService:
         content: bytes,
         filename: str | None = None,
         actor_id: str | None = None,
+        document_id: UUID | None = None,
+        source_object: StoredObject | None = None,
     ) -> Step1Output:
         self.repository.validate_encounter(
             patient_id=patient_id,
             encounter_id=encounter_id,
         )
-        document_id = uuid4()
+        document_id = document_id or uuid4()
         audit_event = self.audit_logger.record(
             document_id,
             "step1.processing_started",
@@ -101,6 +131,7 @@ class InputProcessingService:
                 ocr_engine_used=None,
                 vlm_model_used=None,
                 actor_id=actor_id,
+                source_object=source_object,
             )
         except DocumentTextExtractionError as exc:
             self._failed_output(
@@ -116,6 +147,7 @@ class InputProcessingService:
                 vlm_model_used=None,
                 error=exc,
                 actor_id=actor_id,
+                source_object=source_object,
             )
             raise InputDocumentError(str(exc)) from exc
         except EncounterPatientMismatchError:
@@ -134,6 +166,7 @@ class InputProcessingService:
                 vlm_model_used=None,
                 error=exc,
                 actor_id=actor_id,
+                source_object=source_object,
             )
 
     def process_handwritten(
@@ -144,12 +177,14 @@ class InputProcessingService:
         content: bytes,
         filename: str | None = None,
         actor_id: str | None = None,
+        document_id: UUID | None = None,
+        source_object: StoredObject | None = None,
     ) -> Step1Output:
         self.repository.validate_encounter(
             patient_id=patient_id,
             encounter_id=encounter_id,
         )
-        document_id = uuid4()
+        document_id = document_id or uuid4()
         audit_event = self.audit_logger.record(
             document_id,
             "step1.processing_started",
@@ -204,6 +239,7 @@ class InputProcessingService:
                 ocr_engine_used=ocr_result.engine,
                 vlm_model_used=vlm_result.model if vlm_result else None,
                 actor_id=actor_id,
+                source_object=source_object,
             )
         except Exception as exc:
             return self._failed_output(
@@ -219,6 +255,7 @@ class InputProcessingService:
                 vlm_model_used=getattr(self.adapters.vlm, "model_name", None),
                 error=exc,
                 actor_id=actor_id,
+                source_object=source_object,
             )
 
     def process_multilingual(
@@ -230,6 +267,9 @@ class InputProcessingService:
         source_language: str,
         actor_id: str | None = None,
     ) -> Step1Output:
+        # Multilingual input arrives as text, so there is no uploaded file to
+        # associate with the document.
+        source_object: StoredObject | None = None
         self.repository.validate_encounter(
             patient_id=patient_id,
             encounter_id=encounter_id,
@@ -268,6 +308,7 @@ class InputProcessingService:
                 ocr_engine_used=None,
                 vlm_model_used=None,
                 actor_id=actor_id,
+                source_object=source_object,
             )
         except Exception as exc:
             return self._failed_output(
@@ -283,6 +324,7 @@ class InputProcessingService:
                 vlm_model_used=None,
                 error=exc,
                 actor_id=actor_id,
+                source_object=source_object,
             )
 
     def get_document(self, document_id: UUID) -> Step1Output:
@@ -379,6 +421,7 @@ class InputProcessingService:
         ocr_engine_used: str | None,
         vlm_model_used: str | None,
         actor_id: str | None,
+        source_object: StoredObject | None = None,
     ) -> Step1Output:
         candidates = split_into_candidate_fields(run.text)
         if not candidates:
@@ -437,6 +480,7 @@ class InputProcessingService:
             ),
         )
         self.repository.save(output)
+        self._record_source_object(output.document_id, source_object)
         self.audit_logger.record(
             document_id,
             "step1.processing_completed",
@@ -463,6 +507,7 @@ class InputProcessingService:
         vlm_model_used: str | None,
         error: Exception,
         actor_id: str | None,
+        source_object: StoredObject | None = None,
     ) -> Step1Output:
         output = Step1Output(
             document_id=document_id,
@@ -481,6 +526,7 @@ class InputProcessingService:
             verification_state=VerificationState.NOT_REQUIRED,
         )
         self.repository.save(output)
+        self._record_source_object(output.document_id, source_object)
         self.audit_logger.record(
             document_id,
             "step1.processing_failed",

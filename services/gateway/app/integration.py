@@ -24,6 +24,8 @@ from services.input_processing.app.repository import (
 )
 from services.memory_engine.app.service import MemoryEngineService
 from services.memory_engine.app.stores import SessionScopedSqlAlchemyMemoryStore
+from services.object_storage import ObjectStorage, build_object_storage
+
 from .config import settings
 from .database import SessionLocal
 
@@ -44,6 +46,7 @@ class IntegratedBackendServices:
     step2: ClinicalNLPService
     step3: MemoryEngineService
     step4: DocumentService
+    object_storage: ObjectStorage
 
 
 def _configure_provider_environment() -> None:
@@ -133,6 +136,7 @@ def build_integrated_services(
             repository=step1_repository,
             audit_logger=step1_audit,
         ),
+        object_storage=build_object_storage(),
         step2=ClinicalNLPService(repository=step2_repository),
         step3=step3,
         step4=step4,

@@ -66,7 +66,7 @@ system. The most important findings are:
 | AI adapters | Partial | Provider-neutral OCR, VLM, translation, BioClinicalBERT, Gemini, and LLM boundaries exist with timeout/retry/error handling. Production providers were not called; deterministic mocks are the only tested runtime mode. |
 | Tests | Partial | 90 tests pass with environment variables. Clean `pytest` collection is not self-contained. Ruff and Pyflakes were unavailable, so unused-code/dependency analysis is not conclusive. |
 | Docker | Partial | `docker compose config` passes with required secrets. PostgreSQL and gateway definitions exist, but compose does not run migrations or seed a user automatically. No container runtime test was performed. |
-| Security | Partial/pass for implemented controls | JWT/RBAC, redacted errors/logs, CORS defaults, rate limits, upload limits, prompt boundaries, and generated-claim validation are present. Process-local limits, missing patient assignment, MIME spoofing risk, and direct-service exposure remain deployment concerns. |
+| Security | Partial/pass for implemented controls | JWT/RBAC, redacted errors/logs, CORS defaults, rate limits, upload limits, prompt boundaries, and generated-claim validation are present. Upload content is magic-byte inspected. Process-local limits, missing patient assignment, object-storage bucket hardening, and direct-service exposure remain deployment concerns. |
 
 ## Endpoint audit
 
@@ -197,8 +197,10 @@ Residual security concerns:
 - Direct service applications have no authentication and must remain private.
 - Refresh replay and rate-limit state are process-local, so multi-replica
   deployment requires shared state or a trusted edge control.
-- Upload content is not magic-byte inspected; a caller can spoof a permitted
-  MIME header unless an upstream scanner validates the content.
+- Upload content is now magic-byte inspected, so a spoofed MIME header no
+  longer admits a file of another type. Two gaps remain: the PDF header is
+  accepted within the first 1024 bytes rather than at offset 0, which a
+  polyglot file could satisfy, and there is still no antivirus scanning.
 - Client-supplied `X-Request-ID` is logged as request metadata without a
   documented format/length policy.
 - Prompt-injection rejection is heuristic and cannot replace physician review
