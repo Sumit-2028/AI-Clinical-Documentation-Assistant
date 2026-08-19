@@ -106,8 +106,12 @@ export function UploadPage() {
         <div className={`dropzone ${isDragging ? 'dragging' : ''}`} onDragEnter={() => setIsDragging(true)} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop}>
           <div className="upload-symbol"><UploadIcon /></div>
           <h3>{fileName ? 'Document ready to process' : 'Drop a clinical document here'}</h3>
-          <p>PDF, PNG or JPG · up to 10 MB</p>
-          <label className="secondary-button browse-button">Browse files<input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={handleBrowse} /></label>
+          <p>PDF, PNG, JPG or TXT · up to 10 MB</p>
+          {/* TEMPORARY (demo): .txt is accepted so plain-text notes can be
+              uploaded during the walkthrough. The backend has always allowed
+              text/plain; this only relaxes the file picker. Revert both this
+              accept list and the caption above once the demo is recorded. */}
+          <label className="secondary-button browse-button">Browse files<input type="file" accept=".pdf,.png,.jpg,.jpeg,.txt" onChange={handleBrowse} /></label>
         </div>
         {fileName && <div className="file-preview"><div className="file-icon"><FileIcon /></div><div><strong>{fileName}</strong><span>{modality === 'multilingual' ? 'Multilingual document' : `${modality[0].toUpperCase()}${modality.slice(1)} document`}</span></div><span className="file-ready"><CheckIcon /> Ready</span></div>}
         <div className="form-divider" />
