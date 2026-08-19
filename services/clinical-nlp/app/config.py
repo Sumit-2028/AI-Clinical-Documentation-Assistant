@@ -30,7 +30,7 @@ class Step2Settings(BaseSettings):
 
     # Gemini API configuration
     gemini_api_key: str = Field(
-        default="AQ.Ab8RN6JrGDyqRZYz6LfZCZ57K_djg3PQ4j0G_YbsxJKAdGLWTA",
+        default="",
         description="Gemini API key for clinical contextualization. Required for production mode.",
     )
     gemini_model: str = Field(
