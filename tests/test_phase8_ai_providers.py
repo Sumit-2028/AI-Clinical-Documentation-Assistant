@@ -7,7 +7,7 @@ from services.ai_adapters import JSONHTTPClient
 from services.clinical_nlp.app.contextualization import (
     ProductionGeminiContextualizationAdapter,
 )
-from services.clinical_nlp.app.ner import BioClinicalBERTNERAdapter
+from services.clinical_nlp.app.ner import HybridNERAdapter
 from services.doc_generation.app.context import GenerationContext
 from services.doc_generation.app.generation import (
     ProductionLLMGenerator,
@@ -116,58 +116,31 @@ def test_configured_step1_adapters_translate_provider_envelopes():
 
 
 def test_gemini_adapter_parses_structured_contextualization():
-    client = FakeProviderClient(
-        {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [
-                            {
-                                "text": (
-                                    '{"assertion":"affirmed",'
-                                    '"clinical_status":"active",'
-                                    '"temporal_context":"past",'
-                                    '"temporal_date":"2025-04-02",'
-                                    '"confidence":0.93}'
-                                )
-                            }
-                        ]
-                    }
-                }
-            ]
-        }
-    )
+    class FakeModels:
+        def generate_content(self, **_kwargs):
+            return type("Response", (), {
+                "text": ('{"assertion":"affirmed","clinical_status":"active",'
+                         '"temporal_context":"past","temporal_date":"2025-04-02",'
+                         '"confidence":0.93}')
+            })()
+
+    client = type("FakeGeminiClient", (), {"models": FakeModels()})()
     adapter = ProductionGeminiContextualizationAdapter(
         api_key="gemini-key",
-        endpoint="https://provider.invalid/gemini",
-        http_client=client,
+        client=client,
     )
 
     result = adapter.contextualize("History of pneumonia", "pneumonia")
 
     assert result.assertion == "affirmed"
     assert result.temporal_date.isoformat() == "2025-04-02"
-    assert client.calls[0]["metadata"]["operation"] == "clinical_contextualization"
 
 
-def test_bioclinicalbert_normalizes_injected_model_output():
-    adapter = BioClinicalBERTNERAdapter(
-        model=lambda text: [
-            {
-                "word": "hypertension",
-                "start": 12,
-                "end": 24,
-                "entity_group": "condition",
-                "score": 0.95,
-            }
-        ]
-    )
+def test_hybrid_ner_extracts_without_external_models():
+    entities = HybridNERAdapter(load_models=False).extract("Patient has cough and takes 500mg orally.")
 
-    entities = adapter.extract("Patient has hypertension")
-
-    assert entities[0].text == "hypertension"
-    assert entities[0].entity_type == "condition"
-    assert entities[0].confidence == 0.95
+    assert any(entity.entity_type == "Symptom" for entity in entities)
+    assert any(entity.entity_type == "Dosage" for entity in entities)
 
 
 def test_production_document_generator_preserves_provenance_boundary():

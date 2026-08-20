@@ -3,10 +3,12 @@ from dataclasses import dataclass
 from .config import settings
 from .contextualization import (
     ContextualizationAdapter,
+    DeterministicContextualizationAdapter,
     ProductionGeminiContextualizationAdapter,
 )
 from .ner import (
     HybridNERAdapter,
+    MockClinicalNERAdapter,
     NERAdapter,
 )
 
@@ -18,10 +20,13 @@ class NLPAdapterBundle:
 
 
 def build_adapter_bundle() -> NLPAdapterBundle:
-    """Build production adapter bundle using Step 2 settings.
+    """Build the configured Step 2 adapters."""
+    if settings.step2_nlp_mode == "mock":
+        return NLPAdapterBundle(
+            ner=MockClinicalNERAdapter(),
+            contextualization=DeterministicContextualizationAdapter(),
+        )
 
-    Requires GEMINI_API_KEY to be set in environment.
-    """
     return NLPAdapterBundle(
         ner=HybridNERAdapter(),
         contextualization=ProductionGeminiContextualizationAdapter(

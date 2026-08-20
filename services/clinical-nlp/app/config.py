@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,10 +22,11 @@ class Step2Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Step 2 mode - production is default, no silent mock fallbacks
+    # Mock mode keeps local development and CI independent of external AI
+    # providers. Production mode is explicit and validates its credentials.
     step2_nlp_mode: str = Field(
-        default="production",
-        description="Step 2 NLP mode. Must be 'production'.",
+        default="mock",
+        description="Step 2 NLP mode: 'mock' or 'production'.",
     )
 
     # Gemini API configuration
@@ -37,15 +38,6 @@ class Step2Settings(BaseSettings):
         default="gemini-2.5-flash",
         description="Gemini model name for contextualization.",
     )
-    gemini_api_url: str = Field(
-        default="https://generativelanguage.googleapis.com/v1beta",
-        description="Gemini API base URL.",
-    )
-    gemini_endpoint: str | None = Field(
-        default=None,
-        description="Optional full endpoint override.",
-    )
-
     # Shared AI transport settings
     ai_timeout_seconds: float = Field(
         default=15.0,
@@ -59,16 +51,16 @@ class Step2Settings(BaseSettings):
     @field_validator("step2_nlp_mode")
     @classmethod
     def validate_mode(cls, value: str) -> str:
-        if value.lower() != "production":
-            raise ValueError("STEP2_NLP_MODE must be 'production'. Mock mode is not supported in production paths.")
+        if value.lower() not in {"mock", "production"}:
+            raise ValueError("STEP2_NLP_MODE must be 'mock' or 'production'.")
         return value.lower()
 
-    @field_validator("gemini_api_key")
-    @classmethod
-    def validate_api_key(cls, value: str) -> str:
-        if not value or not value.strip():
-            raise ValueError("GEMINI_API_KEY is required for production mode.")
-        return value.strip()
+    @model_validator(mode="after")
+    def validate_production_credentials(self) -> "Step2Settings":
+        self.gemini_api_key = self.gemini_api_key.strip()
+        if self.step2_nlp_mode == "production" and not self.gemini_api_key:
+            raise ValueError("GEMINI_API_KEY is required when STEP2_NLP_MODE=production.")
+        return self
 
 
 # Global settings instance

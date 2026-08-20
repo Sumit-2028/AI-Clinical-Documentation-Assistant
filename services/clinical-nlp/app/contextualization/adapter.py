@@ -31,6 +31,27 @@ class ContextualizationAdapter(Protocol):
         ...
 
 
+class DeterministicContextualizationAdapter:
+    """Local contextualizer used by mock mode and deterministic tests."""
+
+    model_name = "deterministic-contextualizer"
+
+    def contextualize(self, text: str, entity_text: str) -> ContextualizationResult:
+        assertion = detect_assertion(text, entity_text)
+        temporal = extract_temporal_context(text)
+        return ContextualizationResult(
+            assertion=assertion.assertion,
+            clinical_status=(
+                "inactive"
+                if temporal.temporal_context == "past" and assertion.assertion == "affirmed"
+                else assertion.clinical_status
+            ),
+            temporal_context=temporal.temporal_context,
+            temporal_date=temporal.temporal_date,
+            confidence=min(assertion.confidence, temporal.confidence, 0.84),
+        )
+
+
 class ProductionGeminiContextualizationAdapter:
     """Gemini contextualization using the official google-genai SDK."""
 
@@ -43,13 +64,15 @@ class ProductionGeminiContextualizationAdapter:
         model_name: str | None = None,
         timeout_seconds: float = 15.0,
         max_retries: int = 2,
+        client: Any | None = None,
     ) -> None:
         self.api_key = api_key
         self.model_name = model_name or self.model_name
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
+        self._uses_sdk_client = client is None
         # Initialize the google-genai client
-        self._client = self._create_client()
+        self._client = client or self._create_client()
 
     def _create_client(self):
         from google import genai
@@ -63,25 +86,35 @@ class ProductionGeminiContextualizationAdapter:
         )
 
     def contextualize(self, text: str, entity_text: str) -> ContextualizationResult:
-        from google.genai.types import GenerateContentConfig
-
         prompt = _contextualization_prompt(text, entity_text)
+        if self._uses_sdk_client:
+            from google.genai.types import GenerateContentConfig
 
-        try:
-            response = self._client.models.generate_content(
-                model=self.model_name,
-                contents=[{"role": "user", "parts": [{"text": prompt}]}],
-                config=GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0,
-                ),
+            config: Any = GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0,
             )
-        except Exception as exc:
-            raise AIProviderResponseError(
-                f"Gemini model '{self.model_name}' request failed: {exc}"
-            ) from exc
+        else:
+            config = {
+                "response_mime_type": "application/json",
+                "temperature": 0,
+            }
 
-        content = self._extract_text(response)
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self._client.models.generate_content(
+                    model=self.model_name,
+                    contents=[{"role": "user", "parts": [{"text": prompt}]}],
+                config=config,
+                )
+                break
+            except Exception as exc:
+                if attempt == self.max_retries:
+                    raise AIProviderResponseError(
+                        f"Gemini model '{self.model_name}' request failed: {exc}"
+                    ) from exc
+
+        content = _extract_text(response)
         try:
             parsed = json.loads(content)
         except (TypeError, json.JSONDecodeError) as exc:

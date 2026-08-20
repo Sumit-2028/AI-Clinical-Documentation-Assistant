@@ -10,7 +10,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY services/gateway/requirements.txt /app/services/gateway/requirements.txt
-RUN pip install --no-cache-dir -r /app/services/gateway/requirements.txt
+COPY services/clinical-nlp/requirements.txt /app/services/clinical-nlp/requirements.txt
+RUN pip install --no-cache-dir -r /app/services/gateway/requirements.txt \
+    && pip install --no-cache-dir -r /app/services/clinical-nlp/requirements.txt
 
 COPY . /app
 

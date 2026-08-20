@@ -24,6 +24,13 @@ pytest
 
 Deterministic AI adapters are the default, so tests do not need external API keys. The gateway mounts the Step 1–4 routes behind Bearer JWT authentication and RBAC. Standalone service apps are intended for isolated development tests and must not be exposed directly to an untrusted network.
 
+For the containerized backend, run `docker compose up --build`. The gateway
+image includes the Clinical NLP dependencies and applies migrations after
+PostgreSQL becomes healthy. Set `SEED_TEST_USER_PASSWORD` to also seed the
+`doctor@example.com` development account. `STEP2_NLP_MODE=mock` is the default; set it to
+`production` and provide `GEMINI_API_KEY` only when hosted Gemini
+contextualization is required.
+
 Security controls and deployment limitations are documented in [docs/security.md](docs/security.md).
 
 ## Frontend integration

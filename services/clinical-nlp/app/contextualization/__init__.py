@@ -1,6 +1,7 @@
 from .adapter import (
     ContextualizationAdapter,
     ContextualizationResult,
+    DeterministicContextualizationAdapter,
     NLPProviderUnavailableError,
     ProductionGeminiContextualizationAdapter,
 )
@@ -11,6 +12,7 @@ __all__ = [
     "AssertionResult",
     "ContextualizationAdapter",
     "ContextualizationResult",
+    "DeterministicContextualizationAdapter",
     "NLPProviderUnavailableError",
     "ProductionGeminiContextualizationAdapter",
     "TemporalResult",

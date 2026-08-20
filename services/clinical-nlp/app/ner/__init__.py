@@ -9,6 +9,7 @@ from .base import (
     NERAdapter,
 )
 from .hybrid import HybridNERAdapter, NLPModelUnavailableError, split_sentences
+from .mock import MockClinicalNERAdapter
 
 __all__ = [
     "EntitySpan",
@@ -17,6 +18,7 @@ __all__ = [
     "EXTRACTION_SOURCE_REGEX",
     "EXTRACTION_SOURCE_SCI",
     "HybridNERAdapter",
+    "MockClinicalNERAdapter",
     "NERAdapter",
     "NLPModelUnavailableError",
     "split_sentences",
